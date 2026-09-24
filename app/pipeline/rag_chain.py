@@ -5,7 +5,6 @@ from langchain_groq import ChatGroq
 from langchain_chroma import Chroma
 from dotenv import load_dotenv
 import os
-import hashlib
 from app.embeddings import get_embeddings
 
 try:
@@ -15,15 +14,49 @@ except ImportError:
 
 from app.auth.users import get_user_role
 from app.guardrails.guardrail import check_input_guardrail, check_output_guardrail
-from app.retrieval.hybrid_rerank import rerank_documents
+from app.retrieval.hybrid_rerank import bm25_search, reciprocal_rank_fusion, rerank_documents
 
 load_dotenv()
 
-SEMANTIC_CACHE:dict = {}
+# Semantic cache: stores post-guardrail answers; a hit requires cosine similarity
+# >= threshold against a cached question FOR THE SAME ROLE (answers never leak roles).
+SEMANTIC_CACHE: list = []
+SEMANTIC_CACHE_THRESHOLD = float(os.getenv("SEMANTIC_CACHE_THRESHOLD", "0.92"))
+SEMANTIC_CACHE_MAX_SIZE = 128
 
-def get_cache_key(role:str, question:str)->str:
-    cleaned = question.lower().strip()
-    return hashlib.md5(f"{role}:{cleaned}".encode()).hexdigest()
+
+def _cosine_similarity(a, b) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(x * x for x in b) ** 0.5
+    return dot / (norm_a * norm_b) if norm_a and norm_b else 0.0
+
+
+def _cache_lookup(role: str, question: str):
+    """Returns a cached answer when a semantically similar question was asked for the same role."""
+    query_vector = get_embeddings().embed_query(question)
+    best_answer, best_score = None, 0.0
+    for entry in SEMANTIC_CACHE:
+        if entry["role"] != role:
+            continue
+        score = _cosine_similarity(query_vector, entry["vector"])
+        if score > best_score:
+            best_answer, best_score = entry["answer"], score
+    if best_answer is not None and best_score >= SEMANTIC_CACHE_THRESHOLD:
+        print(f"⚡ SEMANTIC CACHE HIT (similarity={best_score:.3f})")
+        return best_answer
+    return None
+
+
+def _cache_store(role: str, question: str, answer: str) -> None:
+    if len(SEMANTIC_CACHE) >= SEMANTIC_CACHE_MAX_SIZE:
+        SEMANTIC_CACHE.pop(0)  # drop the oldest entry (bounded memory)
+    SEMANTIC_CACHE.append({
+        "role": role,
+        "question": question,
+        "answer": answer,
+        "vector": get_embeddings().embed_query(question),
+    })
 
 
 def build_rag_chain(persist_directory: str, role:str):
@@ -76,9 +109,11 @@ def build_rag_chain(persist_directory: str, role:str):
     )
 
     def retrieve_and_rerank(query:str):
-        docs =retriever.invoke(query)
-        rerank_docs = rerank_documents(query, docs, top_k=3)
-        return format_docs(rerank_docs)
+        dense_docs = retriever.invoke(query)
+        sparse_docs = bm25_search(query, role, top_k=6, vectorstore=vectorstore)
+        fused = reciprocal_rank_fusion(dense_docs, sparse_docs)
+        candidates = [doc for doc, _score in fused[:8]]
+        return format_docs(rerank_documents(query, candidates, top_k=3))
 
     # chain = ({"context": retriever | format_docs ,"question":RunnablePassthrough()}| prompt | ChatHuggingFace(llm=llm) | StrOutputParser())
     chain = (
@@ -125,11 +160,10 @@ def ask_question(username:str, question:str):
     if violation:
         return violation
     
-     # Semantic Cache Lookup
-    cache_key = get_cache_key(role, question)
-    if cache_key in SEMANTIC_CACHE:
-        print(f" CACHE HIT for key: {cache_key}")
-        return SEMANTIC_CACHE[cache_key]
+    # Semantic Cache Lookup
+    cached = _cache_lookup(role, question)
+    if cached:
+        return cached
     
     chain,_ = build_rag_chain("./chroma_db",role = role)
     raw_response = chain.invoke(
@@ -142,7 +176,7 @@ def ask_question(username:str, question:str):
     )
     safe_response = check_output_guardrail(raw_response)
     # Store in Semantic Cache
-    SEMANTIC_CACHE[cache_key] = safe_response
+    _cache_store(role, question, safe_response)
     return safe_response
 
 def stream_rag_question(role: str, question: str, persist_directory: str = "./chroma_db", username: str = None):
@@ -152,9 +186,9 @@ def stream_rag_question(role: str, question: str, persist_directory: str = "./ch
         return
 
     # Cache Lookup
-    cache_key = get_cache_key(role, question)
-    if cache_key in SEMANTIC_CACHE:
-        yield SEMANTIC_CACHE[cache_key]
+    cached = _cache_lookup(role, question)
+    if cached:
+        yield cached
         return
 
     chain, _ = build_rag_chain(persist_directory, role=role)
@@ -172,7 +206,7 @@ def stream_rag_question(role: str, question: str, persist_directory: str = "./ch
 
 
 
-    SEMANTIC_CACHE[cache_key] = accumulated
+    _cache_store(role, question, accumulated)
 
 if __name__== "__main__":
     response = ask_question("Madhu", "How many candidates are onboarded in this year to the company?")

@@ -1,7 +1,11 @@
-import math 
-from typing import List,Dict, Tuple
+import re
+from typing import Dict, List, Tuple
+
+from langchain_core.documents import Document
 from sentence_transformers import CrossEncoder
-_reranker_instance = None 
+
+_reranker_instance = None
+_bm25_cache: Dict[str, dict] = {}
 
 def get_reranker():
     global _reranker_instance
@@ -46,3 +50,72 @@ def rerank_documents(query: str, docs: List, top_k: int = 3) -> List:
     
     scored_docs = sorted(zip(docs, scores), key=lambda x: x[1], reverse=True)
     return [doc for doc, score in scored_docs[:top_k]]
+
+
+def _tokenize(text: str) -> List[str]:
+    """Lowercase word tokens with light suffix stripping (openings->open, days->day)."""
+    tokens = re.findall(r"\w+", text.lower())
+    stemmed = []
+    for token in tokens:
+        if len(token) > 4:
+            for suffix in ("ings", "ing", "ies", "ed", "es", "s"):
+                if token.endswith(suffix) and len(token) - len(suffix) >= 3:
+                    token = token[: -len(suffix)]
+                    break
+        stemmed.append(token)
+    return stemmed
+
+
+def reset_bm25_cache(role: str = None) -> None:
+    """Drops cached BM25 indexes (call after re-ingesting documents)."""
+    if role is None:
+        _bm25_cache.clear()
+    else:
+        _bm25_cache.pop(role, None)
+
+
+def _load_role_documents(role: str, vectorstore=None) -> List[Document]:
+    """Loads every chunk the role is permitted to see (Chroma doubles as the doc store)."""
+    try:
+        if vectorstore is None:
+            from app.embeddings import get_embeddings
+            from langchain_chroma import Chroma
+            vectorstore = Chroma(persist_directory="./chroma_db", embedding_function=get_embeddings())
+        role_filter = None if role == "admin" else {"$or": [{"role": role}, {"role": "general"}]}
+        stored = vectorstore.get(where=role_filter) if role_filter else vectorstore.get()
+        documents = stored.get("documents") or []
+        metadatas = stored.get("metadatas") or []
+        return [
+            Document(page_content=doc, metadata=metadatas[i] if i < len(metadatas) else {})
+            for i, doc in enumerate(documents)
+        ]
+    except Exception:
+        return []
+
+
+def get_bm25_index(role: str, vectorstore=None):
+    """Builds and caches a BM25 index over the role-permitted chunks (per role, per process)."""
+    if role in _bm25_cache:
+        return _bm25_cache[role]
+
+    docs = _load_role_documents(role, vectorstore)
+    if not docs:
+        return None
+
+    from rank_bm25 import BM25Okapi  # lazy import; hybrid degrades to dense-only without it
+    index = {"bm25": BM25Okapi([_tokenize(d.page_content) for d in docs]), "docs": docs}
+    _bm25_cache[role] = index
+    return index
+
+
+def bm25_search(query: str, role: str, top_k: int = 6, vectorstore=None) -> List:
+    """Sparse BM25 retrieval over the role-permitted chunks (empty list on any failure)."""
+    index = get_bm25_index(role, vectorstore)
+    if not index:
+        return []
+    try:
+        scores = index["bm25"].get_scores(_tokenize(query))
+    except Exception:
+        return []
+    ranked = sorted(zip(index["docs"], scores), key=lambda x: x[1], reverse=True)
+    return [doc for doc, score in ranked[:top_k] if score > 0]

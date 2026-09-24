@@ -1,4 +1,6 @@
 import os
+import shutil
+import time
 from pathlib import Path
 from langchain_community.document_loaders import CSVLoader, TextLoader, DirectoryLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -52,11 +54,27 @@ def store_in_chroma(chunks:list,persist_directory:str):
     Embedding: the lazy local sentence-transformer (CPU) converts the text into
     numbers (vectors). The model is loaded on first use, not at startup.
 
+    Storage: Chroma saves the vectors and metadata to disk. The store is rebuilt
+    from scratch on every ingest, so re-runs never accumulate duplicate chunks.
     """
     embeddings = get_embeddings()
-    """
-    Storage: Chroma saves the vectors and metadata to disk.
-    """
+
+    # Idempotency: drop the previous store before re-indexing. On Windows the
+    # store may be briefly locked by other processes - retry, then fail loudly.
+    if Path(persist_directory).exists():
+        for attempt in range(3):
+            try:
+                shutil.rmtree(persist_directory)
+                break
+            except PermissionError:
+                if attempt == 2:
+                    raise RuntimeError(
+                        "Could not clear the existing Chroma store: another process "
+                        "(e.g. a running Streamlit app / API server) is holding it. "
+                        "Stop that app, then re-run the ingestion."
+                    )
+                time.sleep(1)
+
     vector_db = Chroma.from_documents(
         documents = chunks,
         embedding = embeddings,
