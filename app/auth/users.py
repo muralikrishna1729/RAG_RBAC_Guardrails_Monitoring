@@ -29,6 +29,10 @@ def seed_default_users():
     finally:
         db.close()
 
+def create_access_token(username: str, role: str) -> str:
+    """Creates a signed JWT access token carrying the username and role claims."""
+    return create_jwt_token({"sub": username, "role": role})
+
 def verify_credentials(username:str, password:str)->bool:
     db = SessionLocal()
     try:

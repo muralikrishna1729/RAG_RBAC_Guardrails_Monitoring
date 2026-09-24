@@ -6,7 +6,7 @@ import jwt
 
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "enterprise-super-secret-key-change-in-prod-2026")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60)
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60))
 
 
 def hash_password(password: str) -> str:
