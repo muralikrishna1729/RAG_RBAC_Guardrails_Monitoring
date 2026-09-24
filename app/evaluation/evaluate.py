@@ -3,7 +3,6 @@ import pandas as pd
 from dotenv import load_dotenv
 
 from langchain_community.document_loaders import DirectoryLoader, TextLoader, CSVLoader
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
 from ragas.testset import TestsetGenerator
@@ -14,6 +13,8 @@ from ragas import evaluate
 from ragas.metrics import Faithfulness, AnswerRelevancy, ContextRecall, ContextPrecision
 
 from datasets import Dataset
+
+from app.embeddings import get_embeddings
 from app.pipeline.rag_chain import build_rag_chain
 
 load_dotenv()
@@ -34,9 +35,7 @@ def get_ragas_llm():
     )
 
 def get_ragas_embeddings():
-    return LangchainEmbeddingsWrapper(
-        HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-    )
+    return LangchainEmbeddingsWrapper(get_embeddings())
 
 
 def generate_test_data(data_path: str) -> pd.DataFrame:

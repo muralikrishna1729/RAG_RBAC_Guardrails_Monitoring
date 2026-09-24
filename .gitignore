@@ -20,3 +20,4 @@ resources/vectorstore
 app_auth.db
 
 security_audit.log
+resources/models/

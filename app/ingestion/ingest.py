@@ -1,9 +1,10 @@
 import os
 from pathlib import Path
 from langchain_community.document_loaders import CSVLoader, TextLoader, DirectoryLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter 
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
+
+from app.embeddings import get_embeddings
 
 
 def load_documents(data_path:str):
@@ -48,10 +49,11 @@ def split_documents(all_docs:list):
 
 def store_in_chroma(chunks:list,persist_directory:str):
     """
-    Embedding: HuggingFaceEmbeddings converts the text into numbers (vectors).
+    Embedding: the lazy local sentence-transformer (CPU) converts the text into
+    numbers (vectors). The model is loaded on first use, not at startup.
 
     """
-    embeddings = HuggingFaceEmbeddings(model_name = "all-MiniLM-L6-v2")
+    embeddings = get_embeddings()
     """
     Storage: Chroma saves the vectors and metadata to disk.
     """

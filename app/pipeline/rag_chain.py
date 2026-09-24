@@ -1,5 +1,3 @@
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
@@ -8,10 +6,7 @@ from langchain_chroma import Chroma
 from dotenv import load_dotenv
 import os
 import hashlib
-try:
-    from langchain_huggingface import HuggingFaceEmbeddings
-except ImportError:
-    from langchain_community.embeddings import HuggingFaceEmbeddings
+from app.embeddings import get_embeddings
 
 try:
     from langchain_chroma import Chroma
@@ -23,7 +18,6 @@ from app.guardrails.guardrail import check_input_guardrail, check_output_guardra
 from app.retrieval.hybrid_rerank import rerank_documents
 
 load_dotenv()
-text_embedding = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
 SEMANTIC_CACHE:dict = {}
 
@@ -35,7 +29,7 @@ def get_cache_key(role:str, question:str)->str:
 def build_rag_chain(persist_directory: str, role:str):
     if not os.path.exists(persist_directory):
         raise FileNotFoundError(f"Vector database not found at {persist_directory}")
-    vectorstore = Chroma(persist_directory= persist_directory ,embedding_function= text_embedding)
+    vectorstore = Chroma(persist_directory= persist_directory ,embedding_function= get_embeddings())
 
     search_kwargs = {"k":6}
     if role != 'admin':
