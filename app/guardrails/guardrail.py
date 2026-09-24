@@ -78,13 +78,23 @@ def check_input_guardrail(question: str)->str:
 
 
 def check_output_guardrail(response: str) -> str:
-    for pattern in PII_PATTERNS:
-        response = re.sub(pattern, "[REDACTED]", response)
+    """
+    Redacts PII from the model's response, while preserving emails that belong
+    to the trusted company domain (e.g. hr@company.com).
+    """
     email_pattern = PII_PATTERNS[0]
-    found_emails = re.findall(email_pattern, response)
-    for email in found_emails:
-        if not email.lower().endswith(f"@{COMPANY_DOMAIN}"):
-            response = response.replace(email, "[REDACTED]")
+    trusted_domain = f"@{COMPANY_DOMAIN}"
+
+    def _redact_email(match) -> str:
+        email = match.group(0)
+        return email if email.lower().endswith(trusted_domain) else "[REDACTED]"
+
+    # Redact only emails outside the trusted company domain
+    response = re.sub(email_pattern, _redact_email, response)
+
+    # Redact the remaining PII patterns (phone numbers, aadhaar, etc.)
+    for pattern in PII_PATTERNS[1:]:
+        response = re.sub(pattern, "[REDACTED]", response)
     return response
 
 if __name__ == "__main__":
