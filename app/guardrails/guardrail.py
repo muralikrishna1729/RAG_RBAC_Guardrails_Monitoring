@@ -12,11 +12,26 @@ PII_PATTERNS = [
     r'\b\d{10}\b',                                      # phone
     r'\b\d{4}[-\s]?\d{4}[-\s]?\d{4}\b'                  # aadhaar
 ]
+PROMPT_INJECTION_PATTERNS = [
+    r"ignore (all )?previous instructions",
+    r"system prompt override",
+    r"you are now (in )?dan mode",
+    r"disregard (the )?above",
+    r"reveal (your )?system prompt",
+    r"jailbreak",
+]
 GREETINGS = ["hi", "hello", "hey", "good morning", "good afternoon", "hola"]
 COMPANY_DOMAIN = os.getenv("COMPANY_DOMAIN", "company.com").lower()
 
-
-llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0)
+_llm_instance = None
+def get_llm():
+    global _llm_instance
+    if _llm_instance is None:
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            return None 
+        _llm_instance = ChatGroq(model="openai/gpt-oss-20b", temperature=0)
+    return _llm_instance
 
 def detect_pii(text:str)->bool:
     for pattern in PII_PATTERNS:
@@ -25,10 +40,22 @@ def detect_pii(text:str)->bool:
     return False
 
 
+def detect_prompt_injection(text:str)->bool:
+    """Scans for adversarial jailbreaks and system override attempts"""
+    lowered = text.lower()
+    for pattern in PROMPT_INJECTION_PATTERNS:
+        if re.search(pattern, lowered):
+            return True
+    return False
+
+
 def check_scope(question: str) -> bool:
+    llm = get_llm()
+    if not llm:
+        return True
     prompt = ChatPromptTemplate.from_template(
         """
-        You are a classifier. Determine if the question is related to HR, Finance, Marketing, Engineering, IT support, policies, contact emails or  general Company Operations.
+        You are a security classifier. Determine if the question is related to HR, Finance, Marketing, Engineering, IT support, policies, or general Company Operations.
         Question: {question}
         Answer only with the word 'YES' or 'NO'.
         """
@@ -41,10 +68,12 @@ def check_scope(question: str) -> bool:
 def check_input_guardrail(question: str)->str:
     if question.lower().strip() in GREETINGS:
         return None
+    if detect_prompt_injection(question):
+        return "Security Violation: Potential prompt injection or adversarial override detected."
     if detect_pii(question):
-        return "Your query contains sensitive personal information. Please remove it."
+        return "Security Violation: Query contains sensitive personal information. Please remove it."
     if not check_scope(question):
-        return "I can only answer questions related to company operations."
+        return "Out-of-Scope: I can only answer questions related to company operations."
     return None
 
 

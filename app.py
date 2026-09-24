@@ -1,3 +1,5 @@
+from app.pipeline.rag_chain import get_retrieved_sources
+from app.pipeline.rag_chain import stream_rag_question
 import streamlit as st 
 from app.auth.users import get_user_role
 from app.guardrails.guardrail import check_input_guardrail, check_output_guardrail
@@ -37,11 +39,16 @@ def show_login_page():
 
 
 def show_chat_page():
+    role = st.session_state.user_info['role']
+    username = st.session_state.user_info['username']
     with st.sidebar:
-        st.title("User Profile")
-        st.write(f"**User:** {st.session_state.user_info['username']}")
-        st.write(f"**Role:** :blue[{st.session_state.user_info['role'].upper()}]")
-        if st.button("Logout"):
+        st.title("👤 Security & Role Context")
+        st.markdown(f"**User:** `{username}`")
+        st.markdown(f"**Role:** **{role.upper()}**")
+        st.success(f"🔒 Vector Store Filter Active: `{role}` & `general` chunks")
+        st.info("⚡ Semantic Cache & Cross-Encoder Active")
+        st.divider()
+        if st.button("Logout", use_container_width=True):
             st.session_state.logged_in = False
             st.session_state.chat_history = []
             st.rerun()
@@ -78,36 +85,23 @@ def show_chat_page():
             if clean_prompt in GREETING_RESPONSES:
                 response_content = GREETING_RESPONSES[clean_prompt]
                 sources = []
-            else:
-                # --- RAG PROCESSING: Guardrails & Chain ---
-                violation_msg = check_input_guardrail(prompt)
-                if violation_msg:
-                    response_content = f"⚠️ {violation_msg}"
-                    sources = []
-                else:
-                    chain = get_cached_rag_chain(st.session_state.user_info["role"])
-                    with st.spinner("Processing Query..."):
-                        try:
-                            raw_answer = chain.invoke(prompt)
-                            response_content = check_output_guardrail(raw_answer)
-                            sources = ["Retrieved from company policy docs"] 
-                        except Exception as e:
-                            response_content = f"Error: {str(e)}"
-                            sources = []
+            violation_msg = check_input_guardrail(prompt)
+            if violation_msg:
+                response_text = f"⚠️ {violation_msg}"
+                st.warning(response_text)
+                sources = []
+            else: 
+                response_text = st.write_stream(stream_rag_question(role, prompt))
+                response_text = check_output_guardrail(response_text)
+                sources = get_retrieved_sources(role, prompt)
+                
 
-            # 3. Display Assistant Response
-            st.markdown(response_content)
             if sources:
-                with st.expander("📄 Sources used"):
-                    for source in sources:
-                        st.write(f"• {source}")
-
-            # 4. Save to History
-            st.session_state.chat_history.append({
-                "role": "assistant", 
-                "content": response_content,
-                "sources": sources
-            })
+                with st.expander("📄 Source Documents & Re-Ranked Metadata"):
+                    for src in sources:
+                        st.write(f"• {src}")
+            
+            st.session_state.chat_history.append({"role":"assistant", "content": response_text, "sources": sources})
             
 if not st.session_state.logged_in:
     show_login_page()

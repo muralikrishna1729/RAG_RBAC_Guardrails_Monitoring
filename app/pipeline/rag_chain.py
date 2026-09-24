@@ -7,19 +7,37 @@ from langchain_groq import ChatGroq
 from langchain_chroma import Chroma
 from dotenv import load_dotenv
 import os
+import hashlib
+try:
+    from langchain_huggingface import HuggingFaceEmbeddings
+except ImportError:
+    from langchain_community.embeddings import HuggingFaceEmbeddings
+
+try:
+    from langchain_chroma import Chroma
+except ImportError:
+    from langchain_community.vectorstores import Chroma
+
 from app.auth.users import get_user_role
-from app.guardrails.guardrail import check_input_guardrail,check_output_guardrail
+from app.guardrails.guardrail import check_input_guardrail, check_output_guardrail
+from app.retrieval.hybrid_rerank import rerank_documents
 
 load_dotenv()
-
 text_embedding = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+
+SEMANTIC_CACHE:dict = {}
+
+def get_cache_key(role:str, question:str)->str:
+    cleaned = question.lower().strip()
+    return hashlib.md5(f"{role}:{cleaned}".encode()).hexdigest()
+
 
 def build_rag_chain(persist_directory: str, role:str):
     if not os.path.exists(persist_directory):
         raise FileNotFoundError(f"Vector database not found at {persist_directory}")
     vectorstore = Chroma(persist_directory= persist_directory ,embedding_function= text_embedding)
 
-    search_kwargs = {"k":3}
+    search_kwargs = {"k":6}
     if role != 'admin':
         search_kwargs["filter"] = {"$or" : [{"role":role},{"role":"general"}]}
     else:
@@ -34,7 +52,7 @@ def build_rag_chain(persist_directory: str, role:str):
 
     # )
     llm = ChatGroq(
-        model="llama-3.1-8b-instant",
+        model="openai/gpt-oss-120b",
         temperature=0
     )
 
@@ -63,13 +81,41 @@ def build_rag_chain(persist_directory: str, role:str):
         """
     )
 
+    def retrieve_and_rerank(query:str):
+        docs =retriever.invoke(query)
+        rerank_docs = rerank_documents(query, docs, top_k=3)
+        return format_docs(rerank_docs)
+
     # chain = ({"context": retriever | format_docs ,"question":RunnablePassthrough()}| prompt | ChatHuggingFace(llm=llm) | StrOutputParser())
-    chain = ({"context": retriever | (lambda docs:check_access(docs,role)) ,"question":RunnablePassthrough()}| prompt | llm | StrOutputParser())
+    chain = (
+        {"context": lambda x: retrieve_and_rerank(x["question"]), "question": lambda x: x["question"]}
+        | prompt
+        | llm
+        | StrOutputParser()
+    )
 
     return chain, retriever
 
 def format_docs(docs):
+    if not docs:
+        return "No relevant matching documents were found."
     return "\n\n".join(doc.page_content for doc in docs)
+
+def get_retrieved_sources(role:str, question:str, persist_directory:str = "./chroma_db"):
+    try:
+        chain,retriever = build_rag_chain(persist_directory, role)
+        docs = retriever.invoke(question)
+        docs = rerank_documents(question, docs, top_k =3)
+        sources = []
+        for doc in docs:
+            dept = doc.metadata.get("role", "general")
+            source_file = doc.metadata.get("source", "company doc")
+            snippet = doc.page_content[:150].replace("\n"," ")+"..."
+            sources.append(f"[{dept.upper()}] {os.path.basename(source_file)}:\"{snippet}\"")
+        return sources
+    except Exception as e:
+        return [f"Source info unavailable: {str(e)}"]
+    
 
 def check_access(docs,role):
     if not docs:
@@ -85,14 +131,43 @@ def ask_question(username:str, question:str):
     if violation:
         return violation
     
+     # Semantic Cache Lookup
+    cache_key = get_cache_key(role, question)
+    if cache_key in SEMANTIC_CACHE:
+        print(f" CACHE HIT for key: {cache_key}")
+        return SEMANTIC_CACHE[cache_key]
+    
     chain,_ = build_rag_chain("./chroma_db",role = role)
-    raw_response = chain.invoke(question)
+    raw_response = chain.invoke({"question": question})
     safe_response = check_output_guardrail(raw_response)
+    # Store in Semantic Cache
+    SEMANTIC_CACHE[cache_key] = safe_response
     return safe_response
 
+def stream_rag_question(role: str, question: str, persist_directory: str = "./chroma_db"):
+    violation = check_input_guardrail(question)
+    if violation:
+        yield f" {violation}"
+        return
+
+    # Cache Lookup
+    cache_key = get_cache_key(role, question)
+    if cache_key in SEMANTIC_CACHE:
+        yield SEMANTIC_CACHE[cache_key]
+        return
+
+    chain, _ = build_rag_chain(persist_directory, role=role)
+    accumulated = ""
+    for chunk in chain.stream({"question": question}):
+        accumulated += chunk
+        yield chunk
+
+
+
+    SEMANTIC_CACHE[cache_key] = accumulated
 
 if __name__== "__main__":
-    response = ask_question("alice", "How many candidates are onboarded in this year to the company?")
+    response = ask_question("Madhu", "How many candidates are onboarded in this year to the company?")
     if not response:
         print("I don't have access to that information or no matching documents were found.")
     print(response)

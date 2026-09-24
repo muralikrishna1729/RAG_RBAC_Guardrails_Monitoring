@@ -12,7 +12,8 @@ def load_documents(data_path:str):
     text_loader = DirectoryLoader(
         data_path,
         glob = "**/*.md",
-        loader_cls=  TextLoader
+        loader_cls=  TextLoader,
+        loader_kwargs={"encoding": "utf-8"}
     )
     csv_loader = DirectoryLoader(
         data_path,

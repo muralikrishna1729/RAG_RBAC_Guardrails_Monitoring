@@ -16,3 +16,7 @@ venv/
 *.lock
 resources/vectorstore
 .env
+# Local runtime databases
+app_auth.db
+
+security_audit.log
