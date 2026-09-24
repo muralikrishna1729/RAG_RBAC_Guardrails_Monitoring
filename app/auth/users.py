@@ -3,7 +3,7 @@ import time
 from typing import  Dict, List
 from app.auth.database import Base, engine, SessionLocal
 from app.auth.models import User, RoleEnum
-from app.auth.security import hash_password, verify_password, create_jwt_token
+from app.auth.security import hash_password, needs_rehash, verify_password, create_jwt_token
 
 # Automatically create tables if not present
 Base.metadata.create_all(bind = engine)
@@ -39,7 +39,13 @@ def verify_credentials(username:str, password:str)->bool:
         user = db.query(User).filter(User.username == username.lower()).first()
         if not user:
             return False 
-        return verify_password(password, user.hashed_password)
+        if not verify_password(password, user.hashed_password):
+            return False
+        # Transparently upgrade legacy (SHA-256) hashes to bcrypt on successful login
+        if needs_rehash(user.hashed_password):
+            user.hashed_password = hash_password(password)
+            db.commit()
+        return True
     finally:
         db.close()
 

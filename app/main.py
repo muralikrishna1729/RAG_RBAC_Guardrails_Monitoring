@@ -1,13 +1,12 @@
 import os
 import json
-from typing import Dict
 from pydantic import BaseModel
-from fastapi import FastAPI, HTTPException, Query, status, Depends
-from fastapi.security import HTTPBasic, HTTPBasicCredentials, HTTPBearer
+from fastapi import FastAPI, HTTPException, Query, Depends
+from fastapi.security import HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from app.auth.security import decode_jwt_token
-from app.auth.users import verify_credentials, get_user_role, create_access_token, get_all_demo_users
+from app.auth.users import verify_credentials, get_user_role, create_access_token
 from app.guardrails.guardrail import check_input_guardrail
 from app.pipeline.rag_chain import ask_question, stream_rag_question, get_retrieved_sources
 from app.utils.audit_logger import log_audit_event
@@ -33,7 +32,6 @@ class LoginRequest(BaseModel):
 class ChatRequest(BaseModel):
     question: str
 
-security = HTTPBasic()
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
@@ -45,45 +43,6 @@ def get_current_user(credentials=Depends(bearer_scheme)):
     if not payload or "sub" not in payload or "role" not in payload:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     return {"username": payload["sub"], "role": payload["role"]}
-
-# Dummy user database
-users_db: Dict[str, Dict[str, str]] = {
-    "Tony": {"password": "password123", "role": "engineering"},
-    "Bruce": {"password": "securepass", "role": "marketing"},
-    "Sam": {"password": "financepass", "role": "finance"},
-    "Peter": {"password": "pete123", "role": "engineering"},
-    "Sid": {"password": "sidpass123", "role": "marketing"},
-    "Natasha": {"passwoed": "hrpass123", "role": "hr"}
-}
-
-
-# Authentication dependency
-def authenticate(credentials: HTTPBasicCredentials = Depends(security)):
-    username = credentials.username
-    password = credentials.password
-    user = users_db.get(username)
-    if not user or user["password"] != password:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    return {"username": username, "role": user["role"]}
-
-
-# Login endpoint
-@app.get("/login")
-def login(user=Depends(authenticate)):
-    return {"message": f"Welcome {user['username']}!", "role": user["role"]}
-
-
-# Protected test endpoint
-@app.get("/test")
-def test(user=Depends(authenticate)):
-    return {"message": f"Hello {user['username']}! You can now chat.", "role": user["role"]}
-
-
-# Protected chat endpoint
-@app.post("/chat")
-def query(user=Depends(authenticate), message: str = "Hello"):
-    return "Implement this endpoint."
-
 
 @app.get("/health")
 def health_check():

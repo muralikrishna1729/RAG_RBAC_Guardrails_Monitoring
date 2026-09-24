@@ -1,7 +1,7 @@
 from app.pipeline.rag_chain import get_retrieved_sources
 from app.pipeline.rag_chain import stream_rag_question
 import streamlit as st 
-from app.auth.users import get_user_role
+from app.auth.users import get_user_role, verify_credentials
 from app.guardrails.guardrail import check_input_guardrail, check_output_guardrail
 from app.utils.audit_logger import log_audit_event
 from app.pipeline.rag_chain import build_rag_chain
@@ -33,8 +33,8 @@ def show_login_page():
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
         if st.button("Login", use_container_width=True):
-            user_role = get_user_role(username)
-            if user_role: #and verify_user(user, password): 
+            if verify_credentials(username, password):
+                user_role = get_user_role(username)
                 st.session_state.logged_in = True
                 st.session_state.user_info = {"username": username, "role": user_role}
                 st.rerun()
