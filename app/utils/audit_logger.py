@@ -1,7 +1,6 @@
 import json 
 import logging 
-import time 
-from datetime import datetime
+from datetime import datetime, timezone
 
 audit_logger = logging.getLogger("security_audit")
 audit_logger.setLevel(logging.INFO)
@@ -13,7 +12,7 @@ audit_logger.addHandler(handler)
 def log_audit_event(username:str, role:str, action:str, question:str, guardrail_status:str, sources:list):
     """Logs a structured JSON security audit event"""
     event = {
-        "timestamp": time.time().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "username": username,
         "role_claim": role,
         "action": action,

@@ -2,7 +2,12 @@ import os
 import hashlib 
 from datetime import datetime, timedelta, timezone
 from typing import Optional 
+
+from dotenv import load_dotenv
+
 import jwt 
+
+load_dotenv()
 
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "enterprise-super-secret-key-change-in-prod-2026")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")

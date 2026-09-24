@@ -3,9 +3,10 @@ import json
 from typing import Dict
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException, Query, status, Depends
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.security import HTTPBasic, HTTPBasicCredentials, HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from app.auth.security import decode_jwt_token
 from app.auth.users import verify_credentials, get_user_role, create_access_token, get_all_demo_users
 from app.guardrails.guardrail import check_input_guardrail
 from app.pipeline.rag_chain import ask_question, stream_rag_question, get_retrieved_sources
@@ -29,9 +30,20 @@ class LoginRequest(BaseModel):
     password: str
 
 class ChatRequest(BaseModel):
-    username: str
     question: str
+
 security = HTTPBasic()
+bearer_scheme = HTTPBearer(auto_error=False)
+
+
+# JWT enforcement: identity comes ONLY from the signed token, never from the request body
+def get_current_user(credentials=Depends(bearer_scheme)):
+    if credentials is None or not getattr(credentials, "credentials", None):
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+    payload = decode_jwt_token(credentials.credentials)
+    if not payload or "sub" not in payload or "role" not in payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    return {"username": payload["sub"], "role": payload["role"]}
 
 # Dummy user database
 users_db: Dict[str, Dict[str, str]] = {
@@ -95,23 +107,25 @@ def login(request: LoginRequest):
     }
 
 @app.post("/api/v1/chat")
-def chat(request: ChatRequest):
-    role = get_user_role(request.username)
+def chat(request: ChatRequest, user = Depends(get_current_user)):
+    username = user["username"]
+    role = get_user_role(username)
     if not role:
         raise HTTPException(status_code=403, detail="User not recognized")
     
     violation = check_input_guardrail(request.question)
     if violation:
-        log_audit_event(request.username, role, "CHAT", request.question, f"BLOCKED: {violation}", [])
+        log_audit_event(username, role, "CHAT", request.question, f"BLOCKED: {violation}", [])
         return {"response": f"{violation}", "sources": [], "guardrail_triggered": True}
 
-    response = ask_question(request.username, request.question)
+    response = ask_question(username, request.question)
     sources = get_retrieved_sources(role, request.question)
-    log_audit_event(request.username, role, "CHAT", request.question, "PASSED", sources)
+    log_audit_event(username, role, "CHAT", request.question, "PASSED", sources)
     return {"response": response, "sources": sources, "role": role}
 
 @app.get("/api/v1/chat/stream")
-def chat_stream(username: str = Query(...), question: str = Query(...)):
+def chat_stream(question: str = Query(...), user = Depends(get_current_user)):
+    username = user["username"]
     role = get_user_role(username)
     if not role:
         raise HTTPException(status_code=403, detail="User not recognized")
