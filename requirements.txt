@@ -16,9 +16,13 @@ langchain-text-splitters>=0.3
 chromadb>=0.5
 
 # --- ML / Embeddings ---
-# CPU-only torch MUST be installed BEFORE sentence-transformers, otherwise pip
-# pulls the multi-GB CUDA build:  pip install torch --index-url https://download.pytorch.org/whl/cpu
+# CPU-only torch + torchvision MUST be installed BEFORE sentence-transformers, otherwise
+# pip pulls the multi-GB CUDA build:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 # Verify with:  python -c "import torch; print(torch.__version__, torch.cuda.is_available())"  -> "x.x.x+cpu False"
+# torchvision is needed by transformers v5: its image-processing modules import it, and
+# without it lazy imports into vision modules crash with ModuleNotFoundError.
+torchvision>=0.20
 sentence-transformers>=3.0
 datasets>=3.0
 
