@@ -132,13 +132,20 @@ def ask_question(username:str, question:str):
         return SEMANTIC_CACHE[cache_key]
     
     chain,_ = build_rag_chain("./chroma_db",role = role)
-    raw_response = chain.invoke({"question": question})
+    raw_response = chain.invoke(
+        {"question": question},
+        config={
+            "run_name": "rbac_rag_chat",
+            "tags": [f"role:{role}"],
+            "metadata": {"username": username, "role": role},
+        },
+    )
     safe_response = check_output_guardrail(raw_response)
     # Store in Semantic Cache
     SEMANTIC_CACHE[cache_key] = safe_response
     return safe_response
 
-def stream_rag_question(role: str, question: str, persist_directory: str = "./chroma_db"):
+def stream_rag_question(role: str, question: str, persist_directory: str = "./chroma_db", username: str = None):
     violation = check_input_guardrail(question)
     if violation:
         yield f" {violation}"
@@ -152,7 +159,14 @@ def stream_rag_question(role: str, question: str, persist_directory: str = "./ch
 
     chain, _ = build_rag_chain(persist_directory, role=role)
     accumulated = ""
-    for chunk in chain.stream({"question": question}):
+    for chunk in chain.stream(
+        {"question": question},
+        config={
+            "run_name": "rbac_rag_stream",
+            "tags": [f"role:{role}"],
+            "metadata": {"username": username, "role": role},
+        },
+    ):
         accumulated += chunk
         yield chunk
 

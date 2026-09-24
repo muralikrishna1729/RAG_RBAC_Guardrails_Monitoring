@@ -11,6 +11,7 @@ from app.auth.users import verify_credentials, get_user_role, create_access_toke
 from app.guardrails.guardrail import check_input_guardrail
 from app.pipeline.rag_chain import ask_question, stream_rag_question, get_retrieved_sources
 from app.utils.audit_logger import log_audit_event
+from app.utils.audit_reader import read_audit_events, summarize_events
 
 app = FastAPI(title="Enterprise RBAC RAG API",
     description="Production-grade RAG API with JWT Auth, Hybrid Search, Cross-Encoder Re-Ranking, and Token Streaming.",
@@ -90,7 +91,9 @@ def health_check():
         "status": "healthy",
         "vector_store": os.path.exists("./chroma_db"),
         "reranker": "ms-marco-MiniLM-L-6-v2",
-        "cache": "enabled"
+        "cache": "enabled",
+        "langsmith_tracing": os.getenv("LANGCHAIN_TRACING_V2", "").strip().lower() == "true",
+        "audit_log": os.path.exists("security_audit.log")
     }
 
 @app.post("/api/v1/auth/login")
@@ -146,6 +149,17 @@ def chat_stream(question: str = Query(...), user = Depends(get_current_user)):
         yield f"data: {json.dumps({'event': 'done', 'sources': sources})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.get("/api/v1/audit/summary")
+def audit_summary(user = Depends(get_current_user)):
+    """Admin-only aggregate view over the security audit log."""
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required")
+    events = read_audit_events()
+    return summarize_events(events)
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
