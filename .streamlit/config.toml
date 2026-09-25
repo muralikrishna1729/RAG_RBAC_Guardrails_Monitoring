@@ -1,0 +1,14 @@
+# Streamlit runtime configuration for the Company RAG Assistant.
+# The dark base theme pairs with the custom stylesheet in
+# app/ui/assets/custom.css (injected by app/ui/theme.py).
+# Reference: https://docs.streamlit.io/develop/api-reference/configuration/config.toml
+
+[theme]
+base = "dark"
+primaryColor = "#818cf8"
+backgroundColor = "#0f1117"
+secondaryBackgroundColor = "#161925"
+textColor = "#e2e8f0"
+
+[browser]
+gatherUsageStats = false

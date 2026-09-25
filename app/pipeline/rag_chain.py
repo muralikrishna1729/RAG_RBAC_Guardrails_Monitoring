@@ -109,11 +109,7 @@ def build_rag_chain(persist_directory: str, role:str):
     )
 
     def retrieve_and_rerank(query:str):
-        dense_docs = retriever.invoke(query)
-        sparse_docs = bm25_search(query, role, top_k=6, vectorstore=vectorstore)
-        fused = reciprocal_rank_fusion(dense_docs, sparse_docs)
-        candidates = [doc for doc, _score in fused[:8]]
-        return format_docs(rerank_documents(query, candidates, top_k=3))
+        return format_docs(retrieve_contexts(role, query, vectorstore=vectorstore))
 
     # chain = ({"context": retriever | format_docs ,"question":RunnablePassthrough()}| prompt | ChatHuggingFace(llm=llm) | StrOutputParser())
     chain = (
@@ -124,6 +120,24 @@ def build_rag_chain(persist_directory: str, role:str):
     )
 
     return chain, retriever
+
+
+def retrieve_contexts(role: str, question: str, persist_directory: str = "./chroma_db", vectorstore=None, top_k: int = 3):
+    """Hybrid retrieval: dense + BM25 -> RRF -> cross-encoder rerank.
+
+    Shared by the chat chain and the evaluation harness so evaluation measures
+    the exact contexts the LLM sees.
+    """
+    if vectorstore is None:
+        vectorstore = Chroma(persist_directory=persist_directory, embedding_function=get_embeddings())
+    search_kwargs = {"k": 6}
+    if role != "admin":
+        search_kwargs["filter"] = {"$or": [{"role": role}, {"role": "general"}]}
+    dense_docs = vectorstore.as_retriever(search_kwargs=search_kwargs).invoke(question)
+    sparse_docs = bm25_search(question, role, top_k=6, vectorstore=vectorstore)
+    fused = reciprocal_rank_fusion(dense_docs, sparse_docs)
+    candidates = [doc for doc, _score in fused[:8]]
+    return rerank_documents(question, candidates, top_k=top_k)
 
 def format_docs(docs):
     if not docs:

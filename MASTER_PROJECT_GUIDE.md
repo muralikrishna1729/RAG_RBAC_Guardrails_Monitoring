@@ -6,7 +6,7 @@ This master guide incorporates **all enterprise-grade advancements**:
 - 🧠 **Advanced Retrieval Pipeline**: Hybrid Search (BM25 + Vector via Reciprocal Rank Fusion) + Cross-Encoder Re-Ranking + Contextual Chunking.
 - 🛡️ **Enterprise Security & Defense-in-Depth**: JWT/OAuth2 Authentication (bcrypt hashing) + Multi-Role Metadata Filtering + Prompt Injection Shield + Structured Audit Logging.
 - ⚡ **Production API Infrastructure**: FastAPI with Server-Sent Events (SSE) streaming + Async Ingestion + Semantic Caching Layer (sub-10ms cache hits).
-- 📊 **Evaluation & Interview Suite**: Math formulas (RRF, Cosine, Ragas), 20+ interview Q&As, whiteboard diagrams, deployment guide, and benchmark evaluation report.
+- 📊 **Evaluation & Interview Suite**: Math formulas (RRF, Cosine, Ragas), 20+ interview Q&As, whiteboard diagrams, and the measured benchmark evaluation report.
 
 ---
 
@@ -67,7 +67,7 @@ This master guide incorporates **all enterprise-grade advancements**:
                                        │ - ChromaDB RBAC Vector Filter│
                                        │ - Reciprocal Rank Fusion(RRF)│
                                        └────────────┬─────────────────┘
-                                                    │ Top-20 Candidates
+                                                    │ Top-8 Fused Candidates
                                                     ▼
                                        ┌──────────────────────────────┐
                                        │ 6. Cross-Encoder Re-Ranker   │
@@ -78,7 +78,7 @@ This master guide incorporates **all enterprise-grade advancements**:
                                                     ▼
                                        ┌──────────────────────────────┐
                                        │ 7. Groq LLM SSE Streamer     │
-                                       │ - llama-3.1-8b Token Stream  │
+                                       │ - gpt-oss-120b Token Stream  │
                                        │ - Output PII Redactor        │
                                        └──────────────────────────────┘
 ```
@@ -92,10 +92,12 @@ This master guide incorporates **all enterprise-grade advancements**:
 | [`app/auth/users.py`](file:///c:/Users/Lenovo/Music/Projects/RAG_RBAC_Guardrails_Monitoring/app/auth/users.py) | **JWT / OAuth2 Auth** + Bcrypt Hashing | Demonstrates production token authentication & role claims payload. |
 | [`app/utils/audit_logger.py`](file:///c:/Users/Lenovo/Music/Projects/RAG_RBAC_Guardrails_Monitoring/app/utils/audit_logger.py) | **Structured Security Audit Logging** | Demonstrates SOC2/HIPAA compliance logging standards. |
 | [`app/guardrails/guardrail.py`](file:///c:/Users/Lenovo/Music/Projects/RAG_RBAC_Guardrails_Monitoring/app/guardrails/guardrail.py) | **Prompt Injection Shield** + PII + Scope Check | Protects against system overrides, DAN attacks, and indirect injection. |
-| [`app/retrieval/hybrid_rerank.py`](file:///c:/Users/Lenovo/Music/Projects/RAG_RBAC_Guardrails_Monitoring/app/retrieval/hybrid_rerank.py) | **Hybrid Search (BM25+Vector)** + **Cross-Encoder Re-Ranker** | Directly solves low **Context Precision (0.57 -> 0.88)**. |
+| [`app/retrieval/hybrid_rerank.py`](file:///c:/Users/Lenovo/Music/Projects/RAG_RBAC_Guardrails_Monitoring/app/retrieval/hybrid_rerank.py) | **Hybrid Search (BM25+Vector)** + **Cross-Encoder Re-Ranker** | Measured **Context Precision 0.50 → 0.94** and **Context Recall 0.50 → 1.00** vs dense-only top-3. |
 | [`app/pipeline/rag_chain.py`](file:///c:/Users/Lenovo/Music/Projects/RAG_RBAC_Guardrails_Monitoring/app/pipeline/rag_chain.py) | **Semantic Cache** + Streaming Chain | Sub-10ms cache latency & real-time token streaming. |
 | [`app/main.py`](file:///c:/Users/Lenovo/Music/Projects/RAG_RBAC_Guardrails_Monitoring/app/main.py) | **FastAPI SSE Streaming** + Async Ingestion | Production REST API with EventSource streaming. |
 | [`app.py`](file:///c:/Users/Lenovo/Music/Projects/RAG_RBAC_Guardrails_Monitoring/app.py) | **Reactive Streamlit UI** with `st.write_stream` | Real-time token streaming & role pill badges. |
+| [`app/ui/`](file:///c:/Users/Lenovo/Music/Projects/RAG_RBAC_Guardrails_Monitoring/app/ui) | **Presentation layer** (theme + components) | Dark themed chat UI, avatars, KPI cards — styling isolated from backend logic. |
+| [`.streamlit/config.toml`](file:///c:/Users/Lenovo/Music/Projects/RAG_RBAC_Guardrails_Monitoring/.streamlit/config.toml) | **Declarative Streamlit theme** | Dark palette + accent colour that mirrors the custom CSS. |
 
 ---
 
@@ -230,7 +232,7 @@ def get_llm():
         api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
             return None
-        _llm_instance = ChatGroq(model="llama-3.1-8b-instant", temperature=0)
+        _llm_instance = ChatGroq(model="openai/gpt-oss-20b", temperature=0)
     return _llm_instance
 
 def detect_pii(text: str) -> bool:
@@ -287,9 +289,9 @@ def check_output_guardrail(response: str) -> str:
 ### Module 4: Advanced Retrieval Engine: Hybrid Search & Cross-Encoder Re-Ranker (`app/retrieval/hybrid_rerank.py`)
 
 #### ❓ Why Implement This?
-Combines **BM25 Lexical Search** (for exact acronyms & financial numbers) with **ChromaDB Dense Vector Search** using **Reciprocal Rank Fusion (RRF)**. Then, passes top-20 candidates through a **Cross-Encoder Re-Ranker** (`ms-marco-MiniLM-L-6-v2`) to select the top-3 most precise chunks.
+Combines **BM25 Lexical Search** (for exact acronyms & financial numbers) with **ChromaDB Dense Vector Search** using **Reciprocal Rank Fusion (RRF)**. Then, passes the top-8 RRF-fused candidates through a **Cross-Encoder Re-Ranker** (`ms-marco-MiniLM-L-6-v2`) to select the top-3 most precise chunks.
 
-> **Impact**: Directly increases **Context Precision from 0.57 to 0.88**!
+> **Impact**: Measured **Context Precision 0.50 → 0.94** and **Context Recall 0.50 → 1.00** against the dense-only top-3 baseline — see [`evaluation_report.md`](file:///c:/Users/Lenovo/Music/Projects/RAG_RBAC_Guardrails_Monitoring/evaluation_report.md).
 
 Create a new file `app/retrieval/hybrid_rerank.py`:
 
@@ -399,7 +401,7 @@ def build_rag_chain(persist_directory: str, role: str):
         search_kwargs["filter"] = {"$or": [{"role": role}, {"role": "general"}]}
 
     retriever = vectorstore.as_retriever(search_kwargs=search_kwargs)   
-    llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0)
+    llm = ChatGroq(model="openai/gpt-oss-120b", temperature=0)
 
     prompt = ChatPromptTemplate.from_template(
         """
@@ -412,9 +414,11 @@ def build_rag_chain(persist_directory: str, role: str):
     )
 
     def retrieve_and_rerank(query: str):
-        docs = retriever.invoke(query)
-        reranked_docs = rerank_documents(query, docs, top_k=3)
-        return format_docs(reranked_docs)
+        dense_docs = retriever.invoke(query)
+        sparse_docs = bm25_search(query, role, top_k=6, vectorstore=vectorstore)
+        fused = reciprocal_rank_fusion(dense_docs, sparse_docs)
+        candidates = [doc for doc, _score in fused[:8]]
+        return format_docs(rerank_documents(query, candidates, top_k=3))
 
     chain = (
         {"context": lambda x: retrieve_and_rerank(x["question"]), "question": lambda x: x["question"]}
@@ -724,7 +728,7 @@ uvicorn app.main:app --reload --port 8000
 ## 5. Interview Prep & Defense Suite
 
 Refer to companion guides in workspace:
-- **[interview_prep_guide.md](file:///c:/Users/Lenovo/Music/Projects/RAG_RBAC_Guardrails_Monitoring/interview_prep_guide.md)**: 20+ interview Q&As, whiteboard diagrams, resume bullet points.
+- **[RBAC RAG Chatbot.md](file:///c:/Users/Lenovo/Music/Projects/RAG_RBAC_Guardrails_Monitoring/RBAC%20RAG%20Chatbot.md)**: 20+ interview Q&As, whiteboard walkthroughs, resume bullet points (the full build transcript).
 - **[architecture_deep_dive.md](file:///c:/Users/Lenovo/Music/Projects/RAG_RBAC_Guardrails_Monitoring/architecture_deep_dive.md)**: Math formulas (RRF, Cosine, Ragas metrics), architecture flowcharts.
 
 ---
@@ -732,5 +736,5 @@ Refer to companion guides in workspace:
 ## 6. Cloud Deployment & Benchmark Evaluation Reports
 
 Refer to companion guides in workspace:
-- **[deployment_guide.md](file:///c:/Users/Lenovo/Music/Projects/RAG_RBAC_Guardrails_Monitoring/deployment_guide.md)**: AWS EC2, Docker Compose, Nginx, Certbot SSL.
+- **Deployment guide — not written yet**: AWS EC2, Docker Compose, Nginx and Certbot SSL are planned; the `Dockerfile` / `docker-compose.yml` are also not committed to the repository yet.
 - **[evaluation_report.md](file:///c:/Users/Lenovo/Music/Projects/RAG_RBAC_Guardrails_Monitoring/evaluation_report.md)**: Baseline vs Hybrid+Re-ranked Ragas metrics report.

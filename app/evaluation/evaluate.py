@@ -1,6 +1,10 @@
 import os
+import sys
 import pandas as pd
 from dotenv import load_dotenv
+
+# Console-safe printing (PowerShell pipes default to cp1252, which chokes on box-drawing chars)
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from langchain_community.document_loaders import DirectoryLoader, TextLoader, CSVLoader
 from langchain_groq import ChatGroq
@@ -15,7 +19,7 @@ from ragas.metrics import Faithfulness, AnswerRelevancy, ContextRecall, ContextP
 from datasets import Dataset
 
 from app.embeddings import get_embeddings
-from app.pipeline.rag_chain import build_rag_chain
+from app.pipeline.rag_chain import build_rag_chain, retrieve_contexts
 
 load_dotenv()
 
@@ -29,7 +33,7 @@ CHROMA_PATH  = "./chroma_db"
 def get_ragas_llm():
     return LangchainLLMWrapper(
         ChatGroq(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             temperature=0,
         )
     )
@@ -96,15 +100,12 @@ def generate_test_data(data_path: str) -> pd.DataFrame:
 
 
 def collect_rag_results(test_df: pd.DataFrame) -> dict:
-    """Run the RAG chain on each question and collect answers + contexts."""
+    """Run the hybrid RAG chain per question; collect answers + reranked contexts."""
 
-    rag_chain, retriever = build_rag_chain(
+    rag_chain, _ = build_rag_chain(
         persist_directory=CHROMA_PATH,
         role="admin"
     )
-
-    def format_docs(docs):
-        return "\n\n".join(doc.page_content for doc in docs)
 
     questions    = test_df["question"].tolist()
     ground_truths = test_df["ground_truth"].tolist() if "ground_truth" in test_df.columns else None
@@ -112,13 +113,15 @@ def collect_rag_results(test_df: pd.DataFrame) -> dict:
     answers  = []
     contexts = []
 
-    print(f"\nRunning RAG chain on {len(questions)} questions...")
+    print(f"\nRunning HYBRID RAG chain on {len(questions)} questions...")
     for i, question in enumerate(questions):
-        retrieved_docs = retriever.invoke(question)
-        answer         = rag_chain.invoke(question)
-
+        answer = rag_chain.invoke(
+            {"question": question},
+            config={"run_name": "ragas_eval", "tags": ["eval", "hybrid"]},
+        )
+        docs    = retrieve_contexts("admin", question, persist_directory=CHROMA_PATH)
         answers.append(answer)
-        contexts.append([doc.page_content for doc in retrieved_docs])
+        contexts.append([doc.page_content for doc in docs])
 
         print(f"  [{i+1}/{len(questions)}] Done: {question[:60]}...")
 
@@ -133,47 +136,105 @@ def collect_rag_results(test_df: pd.DataFrame) -> dict:
     return data_dict
 
 
-def evaluate_rag_chain(test_df: pd.DataFrame):
-    """Evaluate collected results using Ragas faithfulness, relevancy, recall, precision."""
+def collect_baseline_contexts(test_df: pd.DataFrame, top_k: int = 3) -> list:
+    """Dense-only top-k contexts - the pre-hybrid baseline pipeline."""
+    from app.embeddings import get_embeddings
+    from langchain_chroma import Chroma
 
-    data_dict   = collect_rag_results(test_df)
-    eval_dataset = Dataset.from_dict(data_dict)
+    vectorstore = Chroma(persist_directory=CHROMA_PATH, embedding_function=get_embeddings())
+    retriever = vectorstore.as_retriever(search_kwargs={"k": top_k})
+
+    baseline = []
+    for _, row in test_df.iterrows():
+        docs = retriever.invoke(row["question"])
+        baseline.append([doc.page_content for doc in docs])
+    return baseline
+
+
+def _avg(df: pd.DataFrame, col: str):
+    return round(df[col].mean(), 3) if col in df.columns else None
+
+
+def evaluate_rag_chain(test_df: pd.DataFrame, sample_size: int = None):
+    """Evaluates the upgraded (hybrid) pipeline and the dense-only baseline with Ragas 0.4."""
+
+    if sample_size:
+        test_df = test_df.head(sample_size)
 
     ragas_llm        = get_ragas_llm()
     ragas_embeddings = get_ragas_embeddings()
+    run_config = RunConfig(max_retries=10, max_wait=60, timeout=240)
 
-    metrics = [
+    # ── Upgraded pipeline: hybrid retrieval + cross-encoder rerank ──
+    data_dict = collect_rag_results(test_df)
+    eval_dataset = Dataset.from_dict({
+        "user_input":         data_dict["question"],
+        "response":           data_dict["answer"],
+        "retrieved_contexts": data_dict["contexts"],
+        "reference":          data_dict.get("ground_truth", data_dict["question"]),
+    })
+
+    upgraded_metrics = [
         Faithfulness(llm=ragas_llm),
-        AnswerRelevancy(llm=ragas_llm, embeddings=ragas_embeddings),
+        # strictness=1: Groq rejects n>1 completions, which ragas' default uses
+        AnswerRelevancy(llm=ragas_llm, embeddings=ragas_embeddings, strictness=1),
         ContextRecall(llm=ragas_llm),
         ContextPrecision(llm=ragas_llm),
     ]
 
-    print("\nEvaluating RAG performance with Ragas...")
-    try:
-        scores = evaluate(
-            dataset=eval_dataset,
-            metrics=metrics
-        )
-    except Exception as e:
-        print(f"Evaluation failed: {e}")
-        return
+    print("\nEvaluating UPGRADED pipeline (hybrid + rerank) with Ragas...")
+    upgraded_scores = evaluate(
+        dataset=eval_dataset,
+        metrics=upgraded_metrics,
+        run_config=run_config,
+    )
+    upgraded_df = upgraded_scores.to_pandas()
+    upgraded_df.to_csv("./resources/test_data/ragas_results.csv", index=False)
 
-    scores_df = scores.to_pandas()
-
-    print("\n─── RAGAS EVALUATION RESULTS (per question) ───────────────────")
+    print("\n─── UPGRADED (hybrid + rerank) ────────────────────────────────")
     display_cols = ["question", "faithfulness", "answer_relevancy", "context_recall", "context_precision"]
-    available    = [c for c in display_cols if c in scores_df.columns]
-    print(scores_df[available].to_string(index=False))
-
-    print("\n─── AVERAGE SCORES ─────────────────────────────────────────────")
+    # ragas 0.4 uses snake_case metric names on the resulting frame
     for col in ["faithfulness", "answer_relevancy", "context_recall", "context_precision"]:
-        if col in scores_df.columns:
-            print(f"  {col:<22}: {scores_df[col].mean():.2f}")
+        value = _avg(upgraded_df, col)
+        if value is not None:
+            print(f"  {col:<22}: {value}")
+    print("  Full results saved to ./resources/test_data/ragas_results.csv")
 
-    results_path = "./resources/test_data/ragas_results.csv"
-    scores_df.to_csv(results_path, index=False)
-    print(f"\nFull results saved to {results_path}")
+    # ── Baseline pipeline: dense-only top-3 (no BM25/RRF, no rerank) ──
+    baseline_contexts = collect_baseline_contexts(test_df)
+    baseline_dataset = Dataset.from_dict({
+        "user_input":         data_dict["question"],
+        "retrieved_contexts": baseline_contexts,
+        "reference":          data_dict.get("ground_truth", data_dict["question"]),
+    })
+
+    baseline_metrics = [
+        ContextPrecision(llm=ragas_llm),
+        ContextRecall(llm=ragas_llm),
+    ]
+
+    print("\nEvaluating BASELINE pipeline (dense-only top-3) with Ragas...")
+    baseline_scores = evaluate(
+        dataset=baseline_dataset,
+        metrics=baseline_metrics,
+        run_config=run_config,
+    )
+    baseline_df = baseline_scores.to_pandas()
+    baseline_df.to_csv("./resources/test_data/ragas_baseline.csv", index=False)
+
+    print("\n─── BASELINE (dense-only top-3) ───────────────────────────────")
+    for col in ["context_precision", "context_recall"]:
+        value = _avg(baseline_df, col)
+        if value is not None:
+            print(f"  {col:<22}: {value}")
+    print("  Full results saved to ./resources/test_data/ragas_baseline.csv")
+
+    print("\n─── SUMMARY (baseline -> upgraded) ────────────────────────────")
+    for col in ["context_precision", "context_recall"]:
+        b, u = _avg(baseline_df, col), _avg(upgraded_df, col)
+        if b is not None and u is not None:
+            delta = "" if not (b and u) else f"  ({(u - b) * 100:+.1f} pts)"
+            print(f"  {col:<22}: {b} -> {u}{delta}")
 
 
 
@@ -188,4 +249,7 @@ if __name__ == "__main__":
         print("No testset found. Generating new one (this may take a few minutes)...")
         test_df = generate_test_data(DATA_PATH)
 
-    evaluate_rag_chain(test_df)
+    sample_size = int(os.getenv("RAGAS_SAMPLE_SIZE", "0")) or None
+    if sample_size:
+        print(f"Sampling {sample_size} questions (RAGAS_SAMPLE_SIZE).")
+    evaluate_rag_chain(test_df, sample_size=sample_size)

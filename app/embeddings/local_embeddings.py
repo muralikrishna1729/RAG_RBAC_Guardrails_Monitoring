@@ -62,14 +62,19 @@ class LocalSentenceTransformerEmbeddings(Embeddings):
         self._model = None  # Nothing loaded yet - lazy.
 
     @property
-    def model(self):
+    def model_name(self) -> str:
+        """Identifier string for the underlying model (used by monitoring tooling)."""
+        return self._model_path or DEFAULT_MODEL_NAME
+
+    @property
+    def sentence_transformer(self):
         """Lazy singleton: loads the model on first access, not at startup."""
         if self._model is None:
             self._model = _get_sentence_transformer(self._model_path, self._device)
         return self._model
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        vectors = self.model.encode(
+        vectors = self.sentence_transformer.encode(
             list(texts),
             batch_size=self._batch_size,
             convert_to_numpy=True,

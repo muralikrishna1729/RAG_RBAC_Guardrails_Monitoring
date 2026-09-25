@@ -9,8 +9,24 @@ import os
 import pandas as pd
 
 from app.utils.audit_reader import read_audit_events, summarize_events
+from app.ui import (
+    ADMIN_NAV_PAGES,
+    AVATARS,
+    PAGE_DASHBOARD,
+    inject_custom_css,
+    render_chat_header,
+    render_chat_history,
+    render_empty_state,
+    render_pipeline_pill,
+    render_sidebar,
+    render_sources,
+)
 
 st.set_page_config(page_title="Company AI Assistant", page_icon="🤖", layout="centered")
+
+# All visual styling lives in the app/ui package: the dark theme + component
+# CSS in app/ui/assets/custom.css is injected here, right after set_page_config.
+inject_custom_css()
 
 @st.cache_resource
 def get_cached_rag_chain(role):
@@ -29,10 +45,11 @@ if "chat_history" not in st.session_state:
 
 def show_login_page():
     st.title("🔐 Company AI Assistant")
-    with st.container(border = True):
+    st.caption("Sign in with your company credentials to reach your role's knowledge base.")
+    with st.container(border=True, key="login_card"):
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
-        if st.button("Login", use_container_width=True):
+        if st.button("Login", use_container_width=True, type="primary"):
             if verify_credentials(username, password):
                 user_role = get_user_role(username)
                 st.session_state.logged_in = True
@@ -45,38 +62,25 @@ def show_login_page():
 def show_chat_page():
     role = st.session_state.user_info['role']
     username = st.session_state.user_info['username']
-    with st.sidebar:
-        st.title("👤 Security & Role Context")
-        st.markdown(f"**User:** `{username}`")
-        st.markdown(f"**Role:** **{role.upper()}**")
-        st.success(f"🔒 Vector Store Filter Active: `{role}` & `general` chunks")
-        st.info("⚡ Semantic Cache & Cross-Encoder Active")
-        st.divider()
-        if st.button("Logout", use_container_width=True):
-            st.session_state.logged_in = False
-            st.session_state.chat_history = []
-            st.rerun()
 
-    st.title("💬 Company RAG Assistant")
-    st.caption(f"Context-aware assistant for {st.session_state.user_info['role']} department")
+    render_chat_header(role)
 
     # 1. Display Chat History
-    for message in st.session_state.chat_history:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-            if message.get("sources"):
-                with st.expander("📄 Sources used"):
-                    for src in message["sources"]:
-                        st.write(f"• {src}")
+    render_chat_history(st.session_state.chat_history)
 
-    # 2. Handle New Input
+    # 2. Empty-state hint - only until the first message is sent
+    if not st.session_state.chat_history:
+        render_empty_state(role)
+
+    # 3. Handle New Input
     if prompt := st.chat_input("Ask a question about company policy..."):
         # Save and display user message
         st.session_state.chat_history.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
+        with st.chat_message("user", avatar=AVATARS["user"]):
             st.markdown(prompt)
 
-        with st.chat_message("assistant"):
+        with st.chat_message("assistant", avatar=AVATARS["assistant"]):
+            thinking = render_pipeline_pill()
             # --- PRE-PROCESSING: Greetings & Simple Responses ---
             GREETING_RESPONSES = {
                 "hi": "Hello! I'm your Company AI. How can I help you today?",
@@ -102,10 +106,10 @@ def show_chat_page():
                 log_audit_event(username, role, "CHAT", prompt, "PASSED", sources)
                 
 
+            thinking.empty()
+
             if sources:
-                with st.expander("📄 Source Documents & Re-Ranked Metadata"):
-                    for src in sources:
-                        st.write(f"• {src}")
+                render_sources(sources, label="📄 Source Documents & Re-Ranked Metadata")
             
             st.session_state.chat_history.append({"role":"assistant", "content": response_text, "sources": sources})
             
@@ -159,11 +163,18 @@ def show_audit_dashboard():
 if not st.session_state.logged_in:
     show_login_page()
 else:
-    if st.session_state.user_info.get("role") == "admin":
-        page = st.sidebar.radio("Go to", ["💬 Chat", "📊 Security Dashboard"], label_visibility="collapsed")
-        if page == "📊 Security Dashboard":
-            show_audit_dashboard()
-        else:
-            show_chat_page()
+    user_role = st.session_state.user_info.get("role", "")
+    is_admin = user_role == "admin"
+
+    # One sidebar for every page: identity, role pill, system status, logout.
+    # Admins additionally get the chat / security-dashboard switcher.
+    selected_page = render_sidebar(
+        st.session_state.user_info.get("username", ""),
+        user_role,
+        nav_pages=ADMIN_NAV_PAGES if is_admin else None,
+    )
+
+    if is_admin and selected_page == PAGE_DASHBOARD:
+        show_audit_dashboard()
     else:
         show_chat_page()

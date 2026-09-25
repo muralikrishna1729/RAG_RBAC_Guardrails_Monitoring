@@ -1,0 +1,374 @@
+/* =============================================================================
+   Company RAG Assistant - custom Streamlit theme
+   -----------------------------------------------------------------------------
+   Injected by app/ui/theme.py :: inject_custom_css() right after
+   st.set_page_config(). This file is the only place visual styling lives, so
+   changing the look never touches the RAG / guardrail / auth code.
+
+   Selectors use Streamlit's stable `data-testid` hooks (verified against the
+   frontend bundle of Streamlit 1.64) instead of emotion cache class names:
+     stApp / stAppViewContainer / stHeader / stSidebar
+     stMetric / stMetricLabel / stMetricValue
+     stChatMessage / stChatMessageContent / stChatMessageAvatar{User,Assistant}
+     stChatInput / stChatInputTextArea / stExpander / stExpanderDetails
+     stBaseButton-* (secondary / primary / primaryFormSubmit)
+   ========================================================================== */
+
+/* -------------------------------------------------------------- 1. tokens */
+:root {
+  --rag-bg-top: #0f1117;
+  --rag-bg-bottom: #161925;
+  --rag-sidebar-bg: #12141c;
+  --rag-surface: rgba(255, 255, 255, 0.03);
+  --rag-surface-strong: rgba(255, 255, 255, 0.05);
+  --rag-border: rgba(255, 255, 255, 0.06);
+  --rag-border-strong: rgba(255, 255, 255, 0.12);
+  --rag-accent: #818cf8;
+  --rag-accent-alt: #38bdf8;
+  --rag-accent-soft: rgba(99, 102, 241, 0.08);
+  --rag-text-muted: #94a3b8;
+  --rag-radius-lg: 14px;
+  --rag-radius-sm: 10px;
+}
+
+/* ------------------------------------------------------ 2. canvas & chrome */
+.stApp,
+div[data-testid="stAppViewContainer"] {
+  background:
+    radial-gradient(1200px 600px at 12% -10%, rgba(129, 140, 248, 0.10), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(56, 189, 248, 0.08), transparent 55%),
+    linear-gradient(180deg, var(--rag-bg-top) 0%, var(--rag-bg-bottom) 100%);
+  background-attachment: fixed;
+}
+
+/* let the gradient show through the top bar, and drop the footer credit */
+div[data-testid="stHeader"] {
+  background: transparent;
+}
+footer {
+  visibility: hidden;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.10);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.20);
+}
+
+/* ---------------------------------------------------------- 3. typography */
+html,
+body,
+.stApp {
+  font-family: "Inter", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1 {
+  background: linear-gradient(90deg, var(--rag-accent) 0%, var(--rag-accent-alt) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+h2,
+h3,
+h4 {
+  letter-spacing: -0.01em;
+}
+
+/* Tagline rendered under the page title by app.ui.components */
+.app-tagline {
+  color: var(--rag-text-muted);
+  margin-top: -10px;
+}
+.app-tagline b {
+  color: #c7d2fe;
+}
+
+/* ------------------------------------------------------------- 4. sidebar */
+section[data-testid="stSidebar"] {
+  background: linear-gradient(180deg, var(--rag-sidebar-bg) 0%, #0d0f15 100%);
+  border-right: 1px solid var(--rag-border);
+}
+section[data-testid="stSidebar"] hr {
+  border-color: var(--rag-border);
+  margin: 0.9rem 0;
+}
+
+/* Admin page switcher rendered as pill tabs.
+   Streamlit 1.64 DOM: stRadioGroup > div > [data-testid="stRadioOption"] >
+   (row div > [radio dot, label markdown]). The dot is deliberately left visible:
+   Streamlit exposes no attribute for the checked option, so the dot is the only
+   selection indicator the CSS can rely on. */
+section[data-testid="stSidebar"] div[data-testid="stRadioGroup"] {
+  gap: 0.35rem;
+}
+section[data-testid="stSidebar"] div[data-testid="stRadioGroup"] > div {
+  width: 100%;
+}
+section[data-testid="stSidebar"] div[data-testid="stRadioOption"] {
+  width: 100%;
+  background: var(--rag-surface);
+  border: 1px solid var(--rag-border);
+  border-radius: var(--rag-radius-sm);
+  padding: 0.4rem 0.7rem;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+section[data-testid="stSidebar"] div[data-testid="stRadioOption"]:hover {
+  background: var(--rag-surface-strong);
+  border-color: rgba(129, 140, 248, 0.45);
+}
+section[data-testid="stSidebar"] div[data-testid="stRadioOption"] p {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+/* --------------------------------------------------- 5. metric (KPI) cards */
+/* Covers the sidebar status cards and the dashboard row without touching code */
+div[data-testid="stMetric"] {
+  background: linear-gradient(180deg, var(--rag-surface-strong) 0%, var(--rag-surface) 100%);
+  border: 1px solid var(--rag-border);
+  border-radius: var(--rag-radius-sm);
+  padding: 0.75rem 0.9rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+div[data-testid="stMetricLabel"] {
+  color: var(--rag-text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+div[data-testid="stMetricValue"] {
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+/* ------------------------------------------------------------- 6. controls */
+button[data-testid^="stBaseButton"] {
+  border-radius: var(--rag-radius-sm);
+  border: 1px solid var(--rag-border-strong);
+  font-weight: 600;
+  transition: border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+button[data-testid^="stBaseButton"]:hover {
+  border-color: var(--rag-accent);
+  color: var(--rag-accent);
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.12);
+}
+button[data-testid^="stBaseButton"]:active {
+  transform: translateY(1px);
+}
+button[data-testid="stBaseButton-primary"],
+button[data-testid="stBaseButton-primaryFormSubmit"] {
+  background: linear-gradient(90deg, #6366f1 0%, #38bdf8 100%);
+  border: none;
+  color: #0b1020;
+}
+button[data-testid="stBaseButton-primary"]:hover,
+button[data-testid="stBaseButton-primaryFormSubmit"]:hover {
+  color: #0b1020;
+  box-shadow: 0 8px 20px rgba(99, 102, 241, 0.35);
+}
+
+div[data-testid="stAlert"] {
+  border-radius: var(--rag-radius-sm);
+}
+
+/* --------------------------------------------------------------- 7. chat */
+div[data-testid="stChatMessage"] {
+  background: var(--rag-surface);
+  border: 1px solid var(--rag-border);
+  border-radius: var(--rag-radius-lg);
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.6rem;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+
+/* User vs assistant hint. The message body always carries this aria-label
+   ("Chat message from user"), so the tint also works with emoji avatars, which
+   have no testid of their own. The avatar selectors are kept as a fallback for
+   the default icon avatars. */
+div[data-testid="stChatMessage"]:has(
+    [data-testid="stChatMessageContent"][aria-label*="from user"]
+  ),
+div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+  background: var(--rag-accent-soft);
+  border-color: rgba(99, 102, 241, 0.22);
+}
+div[data-testid="stChatMessage"]:has(
+    [data-testid="stChatMessageContent"][aria-label*="from assistant"]
+  ),
+div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"]) {
+  background: rgba(56, 189, 248, 0.045);
+  border-color: rgba(56, 189, 248, 0.16);
+}
+
+/* round, softly lit avatar chip (the element right before the message body) */
+div[data-testid="stChatMessage"]
+  > div:first-child:has(+ div[data-testid="stChatMessageContent"]) {
+  border-radius: 50%;
+  border: 1px solid var(--rag-border-strong);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  font-size: 1.05rem;
+  overflow: hidden;
+}
+div[data-testid="stChatMessage"] img[alt$="avatar"] {
+  border-radius: 50%;
+}
+div[data-testid="stChatMessageContent"] p:last-child {
+  margin-bottom: 0;
+}
+
+/* chat composer */
+div[data-testid="stChatInput"] {
+  border-radius: var(--rag-radius-lg);
+  border: 1px solid var(--rag-border);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+div[data-testid="stChatInput"]:focus-within {
+  border-color: rgba(129, 140, 248, 0.60);
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
+}
+div[data-testid="stChatInput"] textarea,
+div[data-testid="stChatInputTextArea"] {
+  border-radius: 12px;
+  background: transparent;
+}
+
+/* retrieved-sources expander */
+div[data-testid="stExpander"] {
+  border-radius: var(--rag-radius-sm);
+  border: 1px solid var(--rag-border);
+  background: rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+}
+div[data-testid="stExpander"] summary:hover {
+  color: var(--rag-accent);
+}
+div[data-testid="stExpanderDetails"] {
+  border-top: 1px solid var(--rag-border);
+}
+
+/* --------------------------------------------------------- 8. role pills */
+.role-pill {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.30);
+  font-weight: 600;
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+}
+.role-pill.role-admin {
+  background: rgba(251, 191, 36, 0.14);
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.32);
+}
+.role-pill.role-finance {
+  background: rgba(52, 211, 153, 0.14);
+  color: #34d399;
+  border-color: rgba(52, 211, 153, 0.32);
+}
+.role-pill.role-hr {
+  background: rgba(244, 114, 182, 0.14);
+  color: #f472b6;
+  border-color: rgba(244, 114, 182, 0.32);
+}
+.role-pill.role-engineering {
+  background: rgba(129, 140, 248, 0.16);
+  color: #818cf8;
+  border-color: rgba(129, 140, 248, 0.34);
+}
+.role-pill.role-marketing {
+  background: rgba(167, 139, 250, 0.16);
+  color: #a78bfa;
+  border-color: rgba(167, 139, 250, 0.34);
+}
+.role-pill.role-general {
+  background: rgba(148, 163, 184, 0.16);
+  color: #cbd5e1;
+  border-color: rgba(148, 163, 184, 0.32);
+}
+
+/* ------------------------------------------- 9. pipeline + empty state */
+.pipeline-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 4px 12px;
+  margin-bottom: 0.35rem;
+  border-radius: 999px;
+  background: rgba(129, 140, 248, 0.10);
+  border: 1px solid rgba(129, 140, 248, 0.25);
+  color: #c7d2fe;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+.pipeline-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--rag-accent);
+  animation: rag-pulse 1.2s ease-in-out infinite;
+}
+@keyframes rag-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+.empty-state {
+  border: 1px dashed rgba(129, 140, 248, 0.35);
+  background: rgba(129, 140, 248, 0.06);
+  border-radius: var(--rag-radius-lg);
+  padding: 1rem 1.15rem;
+  color: #cbd5e1;
+}
+.empty-state-title {
+  font-weight: 700;
+  font-size: 1rem;
+  margin-bottom: 0.3rem;
+}
+.empty-state-sub {
+  color: var(--rag-text-muted);
+  font-size: 0.88rem;
+}
+.empty-state-examples {
+  margin: 0.6rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--rag-text-muted);
+  font-size: 0.88rem;
+}
+
+/* --------------------------------------------------------- 10. login card */
+/* st.container(key="login_card") exposes the stable .st-key-login_card hook */
+.st-key-login_card {
+  border-radius: var(--rag-radius-lg);
+  border-color: var(--rag-border);
+  background: var(--rag-surface);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.30);
+  padding: 1.25rem 1.35rem;
+}
