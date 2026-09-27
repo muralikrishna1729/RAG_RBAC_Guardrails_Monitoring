@@ -64,16 +64,23 @@ def store_in_chroma(chunks:list,persist_directory:str):
     if Path(persist_directory).exists():
         for attempt in range(3):
             try:
-                shutil.rmtree(persist_directory)
+                for item in Path(persist_directory).iterdir():
+                    if item.is_dir():
+                        shutil.rmtree(item)
+                    else:
+                        item.unlink()
                 break
-            except PermissionError:
+            except (PermissionError, OSError):
                 if attempt == 2:
                     raise RuntimeError(
                         "Could not clear the existing Chroma store: another process "
                         "(e.g. a running Streamlit app / API server) is holding it. "
                         "Stop that app, then re-run the ingestion."
                     )
-                time.sleep(1)
+    else:
+        Path(persist_directory).mkdir(parents=True, exist_ok=True)
+                
+    time.sleep(1)
 
     vector_db = Chroma.from_documents(
         documents = chunks,
