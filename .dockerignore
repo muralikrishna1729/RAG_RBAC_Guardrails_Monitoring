@@ -1,0 +1,16 @@
+.git
+.gitignore
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.env.local
+security_audit.log
+chroma_db/
+resources/models/
+.streamlit/secrets.toml
+evaluation_report.md
+MASTER_PROJECT_GUIDE.md
+RBAC RAG Chatbot.md

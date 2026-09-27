@@ -735,6 +735,8 @@ Refer to companion guides in workspace:
 
 ## 6. Cloud Deployment & Benchmark Evaluation Reports
 
-Refer to companion guides in workspace:
-- **Deployment guide — not written yet**: AWS EC2, Docker Compose, Nginx and Certbot SSL are planned; the `Dockerfile` / `docker-compose.yml` are also not committed to the repository yet.
+Refer to companion deployment and evaluation guides in workspace:
+- **[AWS_DEPLOYMENT_GUIDE.md](file:///c:/Users/Lenovo/Music/Projects/RAG_RBAC_Guardrails_Monitoring/AWS_DEPLOYMENT_GUIDE.md)**: Production deployment on AWS (EC2 + Docker Compose + Nginx reverse proxy + Certbot SSL, plus ECR/ECS setup).
+- **[Dockerfile](file:///c:/Users/Lenovo/Music/Projects/RAG_RBAC_Guardrails_Monitoring/Dockerfile)** & **[docker-compose.yml](file:///c:/Users/Lenovo/Music/Projects/RAG_RBAC_Guardrails_Monitoring/docker-compose.yml)** & **[nginx.conf](file:///c:/Users/Lenovo/Music/Projects/RAG_RBAC_Guardrails_Monitoring/nginx.conf)**: Containerization assets for fast single-command local and server deployment.
 - **[evaluation_report.md](file:///c:/Users/Lenovo/Music/Projects/RAG_RBAC_Guardrails_Monitoring/evaluation_report.md)**: Baseline vs Hybrid+Re-ranked Ragas metrics report.
+
