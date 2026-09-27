@@ -5,7 +5,7 @@ from app.auth.database import Base, engine, SessionLocal
 from app.auth.models import User, RoleEnum
 from app.auth.security import hash_password, needs_rehash, verify_password, create_jwt_token
 
-# Automatically create tables if not present
+# Automatically create tables if not present and seed default users
 Base.metadata.create_all(bind = engine)
 
 def seed_default_users():
@@ -28,6 +28,9 @@ def seed_default_users():
             print("Successfully seeded default enterprise users into database.")
     finally:
         db.close()
+
+# Auto-seed if database is empty on module import
+seed_default_users()
 
 def create_access_token(username: str, role: str) -> str:
     """Creates a signed JWT access token carrying the username and role claims."""
