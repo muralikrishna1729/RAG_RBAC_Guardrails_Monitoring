@@ -59,12 +59,15 @@ def store_in_chroma(chunks:list,persist_directory:str):
     """
     embeddings = get_embeddings()
 
-    # Idempotency: drop the previous store before re-indexing. On Windows the
-    # store may be briefly locked by other processes - retry, then fail loudly.
-    if Path(persist_directory).exists():
+    # Idempotency: clear the previous store's *contents* before re-indexing, but
+    # keep the directory itself - in Docker it is a bind mount, so removing the
+    # mount point itself fails with "device or resource busy". On Windows the store
+    # files may be briefly locked by other processes - back off, retry, fail loudly.
+    store_path = Path(persist_directory)
+    if store_path.exists():
         for attempt in range(3):
             try:
-                for item in Path(persist_directory).iterdir():
+                for item in store_path.iterdir():
                     if item.is_dir():
                         shutil.rmtree(item)
                     else:
@@ -77,10 +80,9 @@ def store_in_chroma(chunks:list,persist_directory:str):
                         "(e.g. a running Streamlit app / API server) is holding it. "
                         "Stop that app, then re-run the ingestion."
                     )
+                time.sleep(1)
     else:
-        Path(persist_directory).mkdir(parents=True, exist_ok=True)
-                
-    time.sleep(1)
+        store_path.mkdir(parents=True, exist_ok=True)
 
     vector_db = Chroma.from_documents(
         documents = chunks,
