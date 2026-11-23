@@ -11,9 +11,9 @@ Set these in the deployment environment or .env:
 - CORS_ALLOWED_ORIGINS to the exact HTTPS frontend origin(s), comma-separated
 - GROQ_API_KEY to the production API key
 - ENABLE_DEMO_USERS=false
-- DATABASE_URL to the intended persistent database URL
+- DOCKER_DATABASE_URL to the intended persistent container database URL (optional; defaults to persistent SQLite)
 
-The Compose file defaults to a single persistent SQLite database at /app/data/app_auth.db, shared by the Streamlit and FastAPI services. For a small single-company deployment this keeps operations simple. Use PostgreSQL only if expected concurrency or operational requirements justify it.
+The Compose file defaults to a single persistent SQLite database at /app/data/app_auth.db, shared by the Streamlit and FastAPI services. For a small single-company deployment this keeps operations simple. Use PostgreSQL only if expected concurrency or operational requirements justify it; configure it through DOCKER_DATABASE_URL.
 
 Production startup fails if the JWT secret is missing/too short or CORS origins are not explicitly configured. Do not use the development fallback secret in a deployed environment.
 
