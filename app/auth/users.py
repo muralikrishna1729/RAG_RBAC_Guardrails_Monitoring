@@ -17,7 +17,7 @@ ENABLE_DEMO_USERS = os.getenv(
 
 def seed_default_users():
     """Seed demo users only when explicitly enabled for a non-production environment."""
-    if APP_ENV == "production" or not ENABLE_DEMO_USERS:
+    if APP_ENV not in {"development", "test"} or not ENABLE_DEMO_USERS:
         return
 
     db = SessionLocal()
