@@ -170,7 +170,7 @@ def format_sources(docs: list) -> list:
     for doc in docs:
         department = doc.metadata.get("role", "general")
         source_file = doc.metadata.get("source", "company doc")
-        snippet = doc.page_content[:150].replace("\n", " ") + "..."
+        snippet = check_output_guardrail(doc.page_content[:150].replace("\n", " ")) + "..."
         sources.append(f'[{department.upper()}] {os.path.basename(source_file)}:"{snippet}"')
     return sources
 
