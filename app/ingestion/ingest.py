@@ -84,30 +84,30 @@ def split_documents(all_docs: list):
         separators=["\n\n", "\n", ".", " ", ""],
     )
     chunks = splitter.split_documents(all_docs)
+    chunk_indexes = {}
     for chunk in chunks:
         chunk_hash = _sha256_bytes(chunk.page_content.encode("utf-8"))
         document_version_id = chunk.metadata.get("document_version_id", "unknown")
         record_index = chunk.metadata.get("record_index", 0)
+        record_key = (document_version_id, record_index)
+        chunk_index = chunk_indexes.get(record_key, 0)
+        chunk_indexes[record_key] = chunk_index + 1
+        chunk.metadata["chunk_index"] = chunk_index
         chunk.metadata["chunk_hash"] = chunk_hash
         chunk.metadata["chunk_id"] = hashlib.sha256(
-            f"{document_version_id}:{record_index}:{chunk_hash}".encode("utf-8")
+            f"{document_version_id}:{record_index}:{chunk_index}:{chunk_hash}".encode("utf-8")
         ).hexdigest()
     print(f"Success: Split into {len(chunks)} chunks.")
     return chunks
 
 
 def store_in_chroma(chunks: list, persist_directory: str):
-    """Stage a new Chroma collection, validate it, then atomically activate it.
-
-    The active collection is never deleted or modified during ingestion. Old
-    collections are retained for rollback until a separate retention cleanup runs.
-    """
+    """Stage a new Chroma collection, validate it, then atomically activate it."""
     if not chunks:
         raise ValueError("Refusing to activate an empty document index.")
 
     store_path = Path(persist_directory)
     store_path.mkdir(parents=True, exist_ok=True)
-
     lock_path = store_path / ".ingestion.lock"
     lock_fd = None
     try:
@@ -152,7 +152,6 @@ def store_in_chroma(chunks: list, persist_directory: str):
             from app.retrieval.hybrid_rerank import reset_bm25_cache
             reset_bm25_cache()
         except Exception:
-            # Other processes use generation-scoped BM25 keys and self-invalidate.
             pass
 
         print(
