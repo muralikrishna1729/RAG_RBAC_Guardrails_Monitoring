@@ -67,7 +67,8 @@ app/
     local_embeddings.py   # Lazy CPU-only all-MiniLM-L6-v2 embeddings, local model folder first
   auth/
     users.py              # Bcrypt password hashing + role store (finance, hr, marketing, engineering, admin)
-    security.py           # JWT access tokens carrying sub/role claims
+    security.py           # JWT access tokens; production requires a strong configured secret
+    bootstrap_admin.py    # Interactive first-admin creation for production
     database.py, models.py # SQLite-backed user store (app_auth.db)
   guardrails/
     guardrail.py           # PII regex + prompt-injection regex + LLM-as-judge scope check
@@ -79,7 +80,8 @@ app/
     assets/custom.css      # Dark theme + component styles
   utils/
     audit_logger.py        # Structured security audit log
-    audit_reader.py        # Reads/aggregates security_audit.log for the admin dashboard
+    audit_reader.py        # Reads/aggregates active and rotated audit logs
+    index_state.py         # Atomic active Chroma collection pointer and generation
   main.py                  # Optional FastAPI layer (JWT auth + SSE streaming)
 app.py                     # Streamlit entrypoint — thin orchestration over app/ui
 .streamlit/
@@ -227,11 +229,16 @@ The UI includes gradient title, emoji chat avatars with per-speaker bubble tints
 | Variable | Required | Description |
 |---|---|---|
 | `GROQ_API_KEY` | Yes | API key for Groq (`gpt-oss-120b`) inference and the guardrail scope judge |
-| `JWT_SECRET_KEY` | Yes (API) | Signing secret for JWT access tokens — replace the built-in default before any real deployment |
+| `APP_ENV` | No | Set to `production` to enforce production startup checks; default `development` |
+| `JWT_SECRET_KEY` | Yes in production | Unique signing secret, at least 32 characters; development fallback is warning-only |
 | `ALGORITHM` | No | JWT signing algorithm (default `HS256`) |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | No | Access-token lifetime in minutes (default `60`) |
 | `COMPANY_DOMAIN` | No | Trusted email domain the output guardrail leaves un-redacted (default `company.com`) |
-| `DATABASE_URL` | No | SQLAlchemy URL for the user store (default `sqlite:///./app_auth.db`) |
+| `DATABASE_URL` | No | Local SQLAlchemy URL (default `sqlite:///./app_auth.db`) |
+| `DOCKER_DATABASE_URL` | No | Optional Docker database URL; default is persistent SQLite at `/app/data/app_auth.db` |
+| `CORS_ALLOWED_ORIGINS` | Yes in production | Exact frontend origins, comma-separated; wildcard is rejected |
+| `ENABLE_DEMO_USERS` | No | Demo seeding is enabled only in development/test; disabled in production |
+| `AUDIT_LOG_PATH` | No | JSON audit log path; Docker Compose assigns separate persistent API/UI files |
 | `GEMINI_API_KEY` | No | Only needed to regenerate the synthetic Ragas testset (`gemini-2.0-flash`) |
 | `RAGAS_SAMPLE_SIZE` | No | Evaluate only the first N testset questions; unset = all |
 | `SEMANTIC_CACHE_THRESHOLD` | No | Cosine similarity required for a semantic-cache hit (default `0.92`) |
