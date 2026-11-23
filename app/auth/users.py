@@ -1,15 +1,25 @@
-import hashlib
-import time
-from typing import  Dict, List
+import os
+from typing import Dict, List
+
 from app.auth.database import Base, engine, SessionLocal
 from app.auth.models import User, RoleEnum
 from app.auth.security import hash_password, needs_rehash, verify_password, create_jwt_token
 
-# Automatically create tables if not present and seed default users
-Base.metadata.create_all(bind = engine)
+# Keep the current lightweight local bootstrap. Schema evolution will be handled
+# separately through migrations; create_all does not replace a migration system.
+Base.metadata.create_all(bind=engine)
+
+APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
+ENABLE_DEMO_USERS = os.getenv(
+    "ENABLE_DEMO_USERS", "true" if APP_ENV in {"development", "test"} else "false"
+).strip().lower() in {"1", "true", "yes", "on"}
+
 
 def seed_default_users():
-    """Seeds default enterprise test users into SQLite/PostgreSQL on initial run."""
+    """Seed demo users only when explicitly enabled for a non-production environment."""
+    if APP_ENV == "production" or not ENABLE_DEMO_USERS:
+        return
+
     db = SessionLocal()
     try:
         if db.query(User).count() == 0:
@@ -21,36 +31,40 @@ def seed_default_users():
                 ("eve", "general123", RoleEnum.GENERAL),
                 ("sagar", "admin123", RoleEnum.ADMIN),
             ]
-            for uname, pwd, role in demo_accounts:
-                user = User(username=uname, hashed_password= hash_password(pwd), role = role)
-                db.add(user)
+            for username, password, role in demo_accounts:
+                db.add(User(
+                    username=username,
+                    hashed_password=hash_password(password),
+                    role=role,
+                ))
             db.commit()
-            print("Successfully seeded default enterprise users into database.")
+            print("Successfully seeded development demo users.")
     finally:
         db.close()
 
-# Auto-seed if database is empty on module import
+
+# Auto-seed is restricted to development/test and can be disabled with ENABLE_DEMO_USERS=false.
 seed_default_users()
 
+
 def create_access_token(username: str, role: str) -> str:
-    """Creates a signed JWT access token carrying the username and role claims."""
+    """Creates a signed access token carrying identity and an informational role claim."""
     return create_jwt_token({"sub": username, "role": role})
 
-def verify_credentials(username:str, password:str)->bool:
+
+def verify_credentials(username: str, password: str) -> bool:
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.username == username.lower()).first()
-        if not user:
-            return False 
-        if not verify_password(password, user.hashed_password):
+        if not user or not verify_password(password, user.hashed_password):
             return False
-        # Transparently upgrade legacy (SHA-256) hashes to bcrypt on successful login
         if needs_rehash(user.hashed_password):
             user.hashed_password = hash_password(password)
             db.commit()
         return True
     finally:
         db.close()
+
 
 def get_user_role(username: str) -> str:
     db = SessionLocal()
@@ -60,8 +74,9 @@ def get_user_role(username: str) -> str:
     finally:
         db.close()
 
+
 def get_all_demo_users() -> List[Dict[str, str]]:
-    """Retrieves all users and their respective roles from the database."""
+    """Retrieves usernames and roles. Does not return credentials or password hashes."""
     db = SessionLocal()
     try:
         users = db.query(User).all()
@@ -69,10 +84,8 @@ def get_all_demo_users() -> List[Dict[str, str]]:
     finally:
         db.close()
 
+
 if __name__ == "__main__":
     seed_default_users()
-    test_users = ["alice", "sagar", "unknown_user"]
-    print("\n--- Testing User Roles ---")
-    for user in test_users:
-        role = get_user_role(user)
-        print(f"User: {user} -> Role: {role}")
+    for username in ["alice", "sagar", "unknown_user"]:
+        print(f"User: {username} -> Role: {get_user_role(username)}")
