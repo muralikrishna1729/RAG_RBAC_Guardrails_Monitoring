@@ -10,11 +10,13 @@ services:
     ports:
       - "8501:8501"
     environment:
+      - APP_ENV=${APP_ENV:-development}
       - GROQ_API_KEY=${GROQ_API_KEY}
       - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2:-false}
       - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
       - LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT:-RAG_RBAC_Guardrails_Monitoring}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-super-secret-key-change-in-production}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
     volumes:
       - chroma_data:/app/chroma_db
       - db_data:/app/data
@@ -35,11 +37,13 @@ services:
     ports:
       - "8000:8000"
     environment:
+      - APP_ENV=${APP_ENV:-development}
       - GROQ_API_KEY=${GROQ_API_KEY}
       - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2:-false}
       - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
       - LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT:-RAG_RBAC_Guardrails_Monitoring}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-super-secret-key-change-in-production}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
     volumes:
       - chroma_data:/app/chroma_db
       - db_data:/app/data
