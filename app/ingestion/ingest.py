@@ -1,4 +1,4 @@
-import os
+import hashlib
 import shutil
 import time
 from pathlib import Path
@@ -11,40 +11,81 @@ from app.embeddings import get_embeddings
 from app.utils.index_state import write_index_generation
 
 
+def _sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
 def load_documents(data_path: str):
-    """Load Markdown and CSV documents and attach their department role."""
+    """Load Markdown/CSV records with stable document IDs and source content hashes."""
+    root = Path(data_path).resolve()
+    loaders = [
+        DirectoryLoader(
+            data_path,
+            glob="**/*.md",
+            loader_cls=TextLoader,
+            loader_kwargs={"encoding": "utf-8"},
+        ),
+        DirectoryLoader(data_path, glob="**/*.csv", loader_cls=CSVLoader),
+    ]
+
     all_docs = []
-    text_loader = DirectoryLoader(
-        data_path,
-        glob="**/*.md",
-        loader_cls=TextLoader,
-        loader_kwargs={"encoding": "utf-8"},
-    )
-    csv_loader = DirectoryLoader(
-        data_path,
-        glob="**/*.csv",
-        loader_cls=CSVLoader,
-    )
-    all_docs.extend(text_loader.load())
-    all_docs.extend(csv_loader.load())
+    for loader in loaders:
+        all_docs.extend(loader.load())
+
+    seen_records = set()
+    unique_docs = []
+    file_hashes = {}
 
     for doc in all_docs:
-        source_path = doc.metadata.get("source", "")
-        if source_path:
-            doc.metadata["role"] = Path(source_path).parent.name
+        source_path = Path(doc.metadata.get("source", "")).resolve()
+        if not str(source_path):
+            continue
 
-    print(f"Success: Loaded {len(all_docs)} total documents.")
-    return all_docs
+        role = source_path.parent.name.lower()
+        try:
+            relative_source = source_path.relative_to(root).as_posix()
+        except ValueError:
+            relative_source = source_path.name
+
+        document_id = hashlib.sha256(
+            f"{role}:{relative_source}".encode("utf-8")
+        ).hexdigest()
+
+        source_key = str(source_path)
+        if source_key not in file_hashes:
+            try:
+                file_hashes[source_key] = _sha256_bytes(source_path.read_bytes())
+            except OSError:
+                # Fall back to the loaded record when the original file is unavailable.
+                file_hashes[source_key] = _sha256_bytes(doc.page_content.encode("utf-8"))
+
+        record_hash = _sha256_bytes(doc.page_content.encode("utf-8"))
+        dedup_key = (document_id, record_hash)
+        if dedup_key in seen_records:
+            continue
+        seen_records.add(dedup_key)
+
+        doc.metadata["role"] = role
+        doc.metadata["document_id"] = document_id
+        doc.metadata["content_hash"] = file_hashes[source_key]
+        doc.metadata["record_hash"] = record_hash
+        doc.metadata["source"] = relative_source
+        unique_docs.append(doc)
+
+    print(f"Loaded {len(all_docs)} records; retained {len(unique_docs)} unique records.")
+    return unique_docs
 
 
 def split_documents(all_docs: list):
-    """Split source documents into overlapping chunks while preserving metadata."""
+    """Split source records into overlapping chunks while preserving metadata."""
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200,
         separators=["\n\n", "\n", ".", " ", ""],
     )
     chunks = splitter.split_documents(all_docs)
+    for chunk in chunks:
+        chunk.metadata["chunk_hash"] = _sha256_bytes(chunk.page_content.encode("utf-8"))
     print(f"Success: Split into {len(chunks)} chunks.")
     return chunks
 
