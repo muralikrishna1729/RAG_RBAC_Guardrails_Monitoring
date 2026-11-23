@@ -3,16 +3,21 @@ import os
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPBearer
 from pydantic import BaseModel
+from sqlalchemy import text
+from langchain_chroma import Chroma
 
+from app.auth.database import engine
 from app.auth.security import decode_jwt_token
 from app.auth.users import verify_credentials, get_user_role, create_access_token
+from app.embeddings import get_embeddings
 from app.guardrails.guardrail import check_input_guardrail
 from app.pipeline.rag_chain import generate_response_with_sources
 from app.utils.audit_logger import log_audit_event
 from app.utils.audit_reader import read_audit_events, summarize_events
+from app.utils.index_state import get_active_collection_name, get_index_generation
 
 APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
 _configured_origins = os.getenv("CORS_ALLOWED_ORIGINS", "").strip()
@@ -25,6 +30,8 @@ else:
 
 if APP_ENV == "production" and ("*" in ALLOWED_ORIGINS or not ALLOWED_ORIGINS):
     raise RuntimeError("Production CORS origins must be explicit; wildcard origins are not allowed.")
+if APP_ENV == "production" and not os.getenv("GROQ_API_KEY", "").strip():
+    raise RuntimeError("GROQ_API_KEY must be configured in production.")
 
 app = FastAPI(
     title="Enterprise RBAC RAG API",
@@ -69,16 +76,55 @@ def get_current_user(credentials=Depends(bearer_scheme)):
     return {"username": username, "role": current_role}
 
 
+@app.get("/health/live")
+def health_live():
+    """Liveness only: no database, vector-store or model loading."""
+    return {"status": "alive"}
+
+
+@app.get("/health/ready")
+def health_ready():
+    """Readiness checks local critical dependencies without calling the external LLM."""
+    checks = {}
+
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        checks["database"] = "ok"
+    except Exception:
+        checks["database"] = "error"
+
+    try:
+        persist_directory = "./chroma_db"
+        if not os.path.isdir(persist_directory):
+            raise RuntimeError("Vector store directory is missing")
+        vectorstore = Chroma(
+            collection_name=get_active_collection_name(persist_directory),
+            persist_directory=persist_directory,
+            embedding_function=get_embeddings(),
+        )
+        chunk_count = vectorstore._collection.count()
+        if chunk_count < 1:
+            raise RuntimeError("Active vector collection is empty")
+        checks["vector_store"] = {"status": "ok", "chunks": chunk_count}
+        generation = get_index_generation(persist_directory)
+    except Exception:
+        checks["vector_store"] = {"status": "error"}
+        generation = None
+
+    ready = checks.get("database") == "ok" and checks.get("vector_store", {}).get("status") == "ok"
+    payload = {
+        "status": "ready" if ready else "not_ready",
+        "checks": checks,
+        "index_generation": generation,
+    }
+    return JSONResponse(status_code=200 if ready else 503, content=payload)
+
+
 @app.get("/health")
 def health_check():
-    return {
-        "status": "healthy",
-        "vector_store": os.path.exists("./chroma_db"),
-        "reranker": "ms-marco-MiniLM-L-6-v2",
-        "cache": "enabled",
-        "langsmith_tracing": os.getenv("LANGCHAIN_TRACING_V2", "").strip().lower() == "true",
-        "audit_log": os.path.exists("security_audit.log"),
-    }
+    """Compatibility health route used by the Docker healthcheck."""
+    return health_ready()
 
 
 @app.post("/api/v1/auth/login")
