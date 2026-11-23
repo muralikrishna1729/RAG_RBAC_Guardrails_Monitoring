@@ -92,6 +92,8 @@ def _build_prompt_chain():
     return ChatPromptTemplate.from_template(RAG_PROMPT) | ChatGroq(
         model="openai/gpt-oss-120b",
         temperature=0,
+        timeout=45,
+        max_retries=2,
     ) | StrOutputParser()
 
 
@@ -122,7 +124,12 @@ def build_rag_chain(persist_directory: str, role: str):
             "question": lambda value: value["question"],
         }
         | ChatPromptTemplate.from_template(RAG_PROMPT)
-        | ChatGroq(model="openai/gpt-oss-120b", temperature=0)
+        | ChatGroq(
+            model="openai/gpt-oss-120b",
+            temperature=0,
+            timeout=45,
+            max_retries=2,
+        )
         | StrOutputParser()
     )
     return chain, retriever
