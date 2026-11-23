@@ -37,10 +37,10 @@ def load_documents(data_path: str):
     file_hashes = {}
 
     for doc in all_docs:
-        source_path = Path(doc.metadata.get("source", "")).resolve()
-        if not str(source_path):
+        source_value = doc.metadata.get("source")
+        if not source_value:
             continue
-
+        source_path = Path(source_value).resolve()
         role = source_path.parent.name.lower()
         try:
             relative_source = source_path.relative_to(root).as_posix()
@@ -56,7 +56,6 @@ def load_documents(data_path: str):
             try:
                 file_hashes[source_key] = _sha256_bytes(source_path.read_bytes())
             except OSError:
-                # Fall back to the loaded record when the original file is unavailable.
                 file_hashes[source_key] = _sha256_bytes(doc.page_content.encode("utf-8"))
 
         record_hash = _sha256_bytes(doc.page_content.encode("utf-8"))
@@ -131,7 +130,6 @@ def store_in_chroma(chunks: list, persist_directory: str):
         from app.retrieval.hybrid_rerank import reset_bm25_cache
         reset_bm25_cache()
     except Exception:
-        # Generation-scoped keys still invalidate stale BM25 entries in other processes.
         pass
 
     print(f"Success: Stored {len(chunks)} chunks in ChromaDB at {persist_directory}")
