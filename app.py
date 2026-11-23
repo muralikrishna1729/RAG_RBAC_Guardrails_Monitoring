@@ -1,4 +1,4 @@
-from app.pipeline.rag_chain import get_retrieved_sources, stream_rag_question, build_rag_chain
+from app.pipeline.rag_chain import generate_response_with_sources, build_rag_chain
 import streamlit as st
 from app.auth.users import get_user_role, verify_credentials
 from app.guardrails.guardrail import check_input_guardrail
@@ -88,15 +88,13 @@ def show_chat_page():
                     sources = []
                     log_audit_event(username, role, "CHAT", prompt, f"BLOCKED: {violation_msg}", [])
                 else:
-                    response_text = st.write_stream(
-                        stream_rag_question(
-                            role,
-                            prompt,
-                            username=username,
-                            input_guardrail_checked=True,
-                        )
+                    response_text, sources = generate_response_with_sources(
+                        role,
+                        prompt,
+                        username=username,
+                        input_guardrail_checked=True,
                     )
-                    sources = get_retrieved_sources(role, prompt)
+                    st.write_stream(iter([response_text]))
                     log_audit_event(username, role, "CHAT", prompt, "PASSED", sources)
 
             thinking.empty()
