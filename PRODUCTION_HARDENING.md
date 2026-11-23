@@ -15,7 +15,7 @@ Set these in the deployment environment or .env:
 
 The Compose file defaults to a single persistent SQLite database at /app/data/app_auth.db, shared by the Streamlit and FastAPI services. For a small single-company deployment this keeps operations simple. Use PostgreSQL only if expected concurrency or operational requirements justify it; configure it through DOCKER_DATABASE_URL.
 
-Production startup fails if the JWT secret is missing/too short or CORS origins are not explicitly configured. Do not use the development fallback secret in a deployed environment.
+Production startup fails if the JWT secret is missing/too short, the Groq key is missing, or CORS origins are not explicitly configured. Do not use the development fallback secret in a deployed environment.
 
 ## Create the first administrator
 
@@ -29,10 +29,16 @@ The command prompts for a username and password; it does not accept a default pa
 
 ## Document ingestion and activation
 
-Run ingestion from the repository root:
+For a local development run:
 
 ```bash
 python -m app.ingestion.ingest
+```
+
+For the Docker Compose database and Chroma volume:
+
+```bash
+docker compose run --rm fastapi python -m app.ingestion.ingest
 ```
 
 The ingestion process now:
@@ -54,6 +60,7 @@ If staging fails, the previous active collection remains selected. Previous coll
 - Semantic and BM25 caches are scoped to the active index generation.
 - Embedding batches retry with smaller batches and validate vector count, dimension and finite values.
 - Audit logs are JSON lines, rotate at 5 MB with five backups, and omit query/document contents. Compose keeps API and Streamlit audit files separate to avoid multi-process rotation races.
+- Readiness checks the SQL database and active Chroma collection without depending on the external LLM; liveness is a separate lightweight endpoint.
 
 ## Current limitations to address before a wider rollout
 
@@ -61,8 +68,7 @@ If staging fails, the previous active collection remains selected. Previous coll
 - Old Chroma collections are retained; automated retention cleanup and rollback tooling are still pending.
 - A stale ingestion lock after a hard process crash requires operator verification/removal.
 - The local persistent Chroma deployment still needs an operational decision about concurrent access from multiple containers. Keep ingestion as a single writer and test this deployment topology under realistic load.
-- The readiness endpoint still needs real database/vector-store checks.
-- Bounded LLM retries/timeouts and the final regression/load test suite are still pending.
+- The final regression/load test suite and real production deployment verification are still pending.
 
 ## Verification
 
