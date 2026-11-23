@@ -109,9 +109,9 @@ def show_chat_page():
 
 
 def show_audit_dashboard():
-    """Admin-only security dashboard built from security_audit.log."""
+    """Admin-only security dashboard built from the rotated JSON audit log."""
     st.title("📊 Security & Audit Dashboard")
-    st.caption("Admin-only view over security_audit.log (RBAC-gated).")
+    st.caption("Admin-only view over the security audit log (RBAC-gated).")
 
     events = read_audit_events()
     if not events:
@@ -154,7 +154,7 @@ def show_audit_dashboard():
     df = df.sort_values("timestamp", ascending=False)
     cols = [
         column for column in [
-            "timestamp", "username", "role_claim", "action", "guardrail_status", "query_length"
+            "timestamp", "username", "role", "role_claim", "action", "guardrail_status", "query_length"
         ] if column in df.columns
     ]
     st.dataframe(df[cols].head(20), use_container_width=True, hide_index=True)
