@@ -107,7 +107,7 @@ def chat(request: ChatRequest, user=Depends(get_current_user)):
         log_audit_event(username, role, "CHAT", request.question, f"BLOCKED: {violation}", [])
         return {"response": violation, "sources": [], "guardrail_triggered": True}
 
-    response = ask_question(username, request.question)
+    response = ask_question(username, request.question, input_guardrail_checked=True)
     sources = get_retrieved_sources(role, request.question)
     log_audit_event(username, role, "CHAT", request.question, "PASSED", sources)
     return {"response": response, "sources": sources, "role": role}
@@ -119,19 +119,21 @@ def chat_stream(question: str = Query(...), user=Depends(get_current_user)):
     role = user["role"]
 
     def event_generator():
-        yield f"data: {json.dumps({'event': 'metadata', 'role': role})}\\n\\n"
+        yield f"data: {json.dumps({'event': 'metadata', 'role': role})}\n\n"
         violation = check_input_guardrail(question)
         if violation:
             log_audit_event(username, role, "STREAM", question, f"BLOCKED: {violation}", [])
-            yield f"data: {json.dumps({'event': 'error', 'message': violation})}\\n\\n"
+            yield f"data: {json.dumps({'event': 'error', 'message': violation})}\n\n"
             return
 
-        for token in stream_rag_question(role, question, username=username):
-            yield f"data: {json.dumps({'event': 'token', 'token': token})}\\n\\n"
+        for safe_chunk in stream_rag_question(
+            role, question, username=username, input_guardrail_checked=True
+        ):
+            yield f"data: {json.dumps({'event': 'token', 'token': safe_chunk})}\n\n"
 
         sources = get_retrieved_sources(role, question)
         log_audit_event(username, role, "STREAM", question, "PASSED", sources)
-        yield f"data: {json.dumps({'event': 'done', 'sources': sources})}\\n\\n"
+        yield f"data: {json.dumps({'event': 'done', 'sources': sources})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
