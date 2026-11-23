@@ -17,7 +17,6 @@ from app.retrieval.hybrid_rerank import bm25_search, reciprocal_rank_fusion, rer
 
 load_dotenv()
 
-# Semantic cache: entries are role-scoped and contain only post-guardrail answers.
 SEMANTIC_CACHE: list = []
 SEMANTIC_CACHE_THRESHOLD = float(os.getenv("SEMANTIC_CACHE_THRESHOLD", "0.92"))
 SEMANTIC_CACHE_MAX_SIZE = 128
@@ -148,13 +147,14 @@ def check_access(docs, role):
     return format_docs(docs)
 
 
-def ask_question(username: str, question: str):
+def ask_question(username: str, question: str, input_guardrail_checked: bool = False):
     role = get_user_role(username)
     if not role:
         return "Access Denied: User not recognized."
-    violation = check_input_guardrail(question)
-    if violation:
-        return violation
+    if not input_guardrail_checked:
+        violation = check_input_guardrail(question)
+        if violation:
+            return violation
 
     cached = _cache_lookup(role, question)
     if cached:
@@ -174,18 +174,19 @@ def ask_question(username: str, question: str):
     return safe_response
 
 
-def stream_rag_question(role: str, question: str, persist_directory: str = "./chroma_db", username: str = None):
-    """Generate a response, redact it fully, then release it to the caller.
-
-    This intentionally buffers the answer before yielding. Token-by-token output
-    can leak PII split across token boundaries unless a streaming redactor keeps
-    and validates a safe rolling suffix. Security takes precedence for this
-    internal company assistant; the API continues to use SSE with one safe chunk.
-    """
-    violation = check_input_guardrail(question)
-    if violation:
-        yield violation
-        return
+def stream_rag_question(
+    role: str,
+    question: str,
+    persist_directory: str = "./chroma_db",
+    username: str = None,
+    input_guardrail_checked: bool = False,
+):
+    """Buffer, redact, then release; this prevents PII split across token boundaries."""
+    if not input_guardrail_checked:
+        violation = check_input_guardrail(question)
+        if violation:
+            yield violation
+            return
 
     cached = _cache_lookup(role, question)
     if cached:
