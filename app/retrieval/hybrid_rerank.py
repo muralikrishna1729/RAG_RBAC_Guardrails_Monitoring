@@ -72,15 +72,15 @@ def reset_bm25_cache(role: str = None) -> None:
             _bm25_cache.pop(cache_key, None)
 
 
-def _load_role_documents(role: str, vectorstore=None) -> List[Document]:
+def _load_role_documents(role: str, vectorstore=None, persist_directory: str = "./chroma_db") -> List[Document]:
     """Load every chunk the role is permitted to see from the active Chroma collection."""
     try:
         if vectorstore is None:
             from app.embeddings import get_embeddings
             from langchain_chroma import Chroma
             vectorstore = Chroma(
-                collection_name=get_active_collection_name("./chroma_db"),
-                persist_directory="./chroma_db",
+                collection_name=get_active_collection_name(persist_directory),
+                persist_directory=persist_directory,
                 embedding_function=get_embeddings(),
             )
         role_filter = None if role == "admin" else {"$or": [{"role": role}, {"role": "general"}]}
@@ -95,14 +95,14 @@ def _load_role_documents(role: str, vectorstore=None) -> List[Document]:
         return []
 
 
-def get_bm25_index(role: str, vectorstore=None):
+def get_bm25_index(role: str, vectorstore=None, persist_directory: str = "./chroma_db"):
     """Cache BM25 per role and active index generation."""
-    generation = get_index_generation()
+    generation = get_index_generation(persist_directory)
     cache_key = (role, generation)
     if cache_key in _bm25_cache:
         return _bm25_cache[cache_key]
 
-    docs = _load_role_documents(role, vectorstore)
+    docs = _load_role_documents(role, vectorstore, persist_directory)
     if not docs:
         return None
 
@@ -112,9 +112,15 @@ def get_bm25_index(role: str, vectorstore=None):
     return index
 
 
-def bm25_search(query: str, role: str, top_k: int = 6, vectorstore=None) -> List:
+def bm25_search(
+    query: str,
+    role: str,
+    top_k: int = 6,
+    vectorstore=None,
+    persist_directory: str = "./chroma_db",
+) -> List:
     """Sparse BM25 retrieval over role-permitted chunks; returns empty list on failure."""
-    index = get_bm25_index(role, vectorstore)
+    index = get_bm25_index(role, vectorstore, persist_directory)
     if not index:
         return []
     try:
