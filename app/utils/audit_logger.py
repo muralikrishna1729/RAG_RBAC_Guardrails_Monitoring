@@ -6,7 +6,8 @@ from pathlib import Path
 from datetime import datetime, timezone
 from uuid import uuid4
 
-_AUDIT_PATH = Path(os.getenv("AUDIT_LOG_PATH", "security_audit.log"))
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_AUDIT_PATH = Path(os.getenv("AUDIT_LOG_PATH", str(_PROJECT_ROOT / "security_audit.log")))
 _AUDIT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 audit_logger = logging.getLogger("security_audit")
