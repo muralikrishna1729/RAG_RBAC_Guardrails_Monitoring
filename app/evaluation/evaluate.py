@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from langchain_community.document_loaders import DirectoryLoader, TextLoader, CSVLoader
+from langchain_chroma import Chroma
 from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
 from ragas.testset import TestsetGenerator
@@ -29,9 +30,7 @@ CHROMA_PATH = "./chroma_db"
 
 
 def get_ragas_llm():
-    return LangchainLLMWrapper(
-        ChatGroq(model="openai/gpt-oss-120b", temperature=0)
-    )
+    return LangchainLLMWrapper(ChatGroq(model="openai/gpt-oss-120b", temperature=0))
 
 
 def get_ragas_embeddings():
@@ -46,11 +45,7 @@ def generate_test_data(data_path: str) -> pd.DataFrame:
         loader_cls=TextLoader,
         loader_kwargs={"encoding": "utf-8"},
     )
-    csv_loader = DirectoryLoader(
-        data_path,
-        glob="**/*.csv",
-        loader_cls=CSVLoader,
-    )
+    csv_loader = DirectoryLoader(data_path, glob="**/*.csv", loader_cls=CSVLoader)
     documents = md_loader.load() + csv_loader.load()
     print(f"Loaded {len(documents)} documents for test generation.")
 
@@ -61,10 +56,7 @@ def generate_test_data(data_path: str) -> pd.DataFrame:
             temperature=0.7,
         )
     )
-    generator = TestsetGenerator(
-        llm=generation_llm,
-        embedding_model=get_ragas_embeddings(),
-    )
+    generator = TestsetGenerator(llm=generation_llm, embedding_model=get_ragas_embeddings())
     run_config = RunConfig(max_retries=10, max_wait=90, timeout=120)
     testset = generator.generate_with_langchain_docs(
         documents,
