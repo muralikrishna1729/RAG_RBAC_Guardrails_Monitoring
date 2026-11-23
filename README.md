@@ -202,7 +202,7 @@ streamlit run app.py
 
 Open `http://localhost:8501` and log in with a demo user to start chatting.
 
-> Containerization is **not committed to this repo yet** — there is no `Dockerfile` or `docker-compose.yml`, so use the commands above to run it locally.
+> `Dockerfile` and `docker-compose.yml` are included. For production configuration, first-admin creation, and safe ingestion activation, see [PRODUCTION_HARDENING.md](PRODUCTION_HARDENING.md).
 
 ---
 
@@ -244,7 +244,7 @@ The UI includes gradient title, emoji chat avatars with per-speaker bubble tints
 
 ## Deployment Status
 
-Currently runs locally only. The `Dockerfile` / `docker-compose.yml` setup is **not in the repository**, so the containerized path — and the EC2 deployment that depends on it — is still outstanding: writing and testing the compose setup is the prerequisite step.
+The repository includes `Dockerfile` and `docker-compose.yml`. A production rollout still requires environment-specific secrets/origins, first-admin bootstrap, validation of the Chroma shared-volume topology, and full integration/load tests. See `PRODUCTION_HARDENING.md` for the deployment procedure and remaining limitations.
 
 ---
 
