@@ -4,56 +4,53 @@ from typing import Dict, List, Tuple
 from langchain_core.documents import Document
 from sentence_transformers import CrossEncoder
 
+from app.utils.index_state import get_index_generation
+
 _reranker_instance = None
-_bm25_cache: Dict[str, dict] = {}
+_bm25_cache: Dict[Tuple[str, str], dict] = {}
+
 
 def get_reranker():
     global _reranker_instance
     if _reranker_instance is None:
         try:
-             _reranker_instance = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+            _reranker_instance = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
         except Exception:
             _reranker_instance = None
     return _reranker_instance
 
-def reciprocal_rank_fusion(dense_docs: List, sparse_docs: List, k:int= 60)-> List[Tuple[object, float]]:
-    """
-    Combines dense vector search & sparse lexical BM25 results using Reciprocal Rank Fusion (RRF).
-    Formula: RRF_Score(d) = sum( 1 / (k + rank(d)) )
-    """
+
+def reciprocal_rank_fusion(dense_docs: List, sparse_docs: List, k: int = 60) -> List[Tuple[object, float]]:
+    """Combine dense and sparse retrieval rankings using Reciprocal Rank Fusion."""
     scores = {}
     doc_map = {}
     for rank, doc in enumerate(dense_docs):
         doc_id = doc.page_content
-        doc_map[doc_id] = doc 
-        scores[doc_id] = scores.get(doc_id, 0.0)+(1.0/(k+rank+1))
+        doc_map[doc_id] = doc
+        scores[doc_id] = scores.get(doc_id, 0.0) + (1.0 / (k + rank + 1))
 
-    
     for rank, doc in enumerate(sparse_docs):
         doc_id = doc.page_content
         doc_map[doc_id] = doc
         scores[doc_id] = scores.get(doc_id, 0.0) + (1.0 / (k + rank + 1))
-    
-    reranked = sorted(scores.items(), key = lambda x: x[1], reverse=True)
+
+    reranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
     return [(doc_map[doc_id], score) for doc_id, score in reranked]
 
+
 def rerank_documents(query: str, docs: List, top_k: int = 3) -> List:
-    """
-    Re-scores retrieved candidate chunks using a Cross-Encoder model.
-    """
+    """Re-score candidate chunks with the cross-encoder; degrade gracefully if unavailable."""
     reranker = get_reranker()
     if not reranker or not docs:
         return docs[:top_k]
-
     pairs = [[query, doc.page_content] for doc in docs]
     scores = reranker.predict(pairs)
-    
-    scored_docs = sorted(zip(docs, scores), key=lambda x: x[1], reverse=True)
-    return [doc for doc, score in scored_docs[:top_k]]
+    scored_docs = sorted(zip(docs, scores), key=lambda item: item[1], reverse=True)
+    return [doc for doc, _score in scored_docs[:top_k]]
 
 
 def _tokenize(text: str) -> List[str]:
-    """Lowercase word tokens with light suffix stripping (openings->open, days->day)."""
+    """Lowercase word tokens with light suffix stripping."""
     tokens = re.findall(r"\w+", text.lower())
     stemmed = []
     for token in tokens:
@@ -67,15 +64,16 @@ def _tokenize(text: str) -> List[str]:
 
 
 def reset_bm25_cache(role: str = None) -> None:
-    """Drops cached BM25 indexes (call after re-ingesting documents)."""
+    """Drops cached BM25 indexes globally or for one role."""
     if role is None:
         _bm25_cache.clear()
     else:
-        _bm25_cache.pop(role, None)
+        for cache_key in [key for key in _bm25_cache if key[0] == role]:
+            _bm25_cache.pop(cache_key, None)
 
 
 def _load_role_documents(role: str, vectorstore=None) -> List[Document]:
-    """Loads every chunk the role is permitted to see (Chroma doubles as the doc store)."""
+    """Load every chunk the role is permitted to see from Chroma."""
     try:
         if vectorstore is None:
             from app.embeddings import get_embeddings
@@ -94,22 +92,24 @@ def _load_role_documents(role: str, vectorstore=None) -> List[Document]:
 
 
 def get_bm25_index(role: str, vectorstore=None):
-    """Builds and caches a BM25 index over the role-permitted chunks (per role, per process)."""
-    if role in _bm25_cache:
-        return _bm25_cache[role]
+    """Cache BM25 per role and index generation so re-ingestion cannot leave stale docs."""
+    generation = get_index_generation()
+    cache_key = (role, generation)
+    if cache_key in _bm25_cache:
+        return _bm25_cache[cache_key]
 
     docs = _load_role_documents(role, vectorstore)
     if not docs:
         return None
 
-    from rank_bm25 import BM25Okapi  # lazy import; hybrid degrades to dense-only without it
-    index = {"bm25": BM25Okapi([_tokenize(d.page_content) for d in docs]), "docs": docs}
-    _bm25_cache[role] = index
+    from rank_bm25 import BM25Okapi
+    index = {"bm25": BM25Okapi([_tokenize(doc.page_content) for doc in docs]), "docs": docs}
+    _bm25_cache[cache_key] = index
     return index
 
 
 def bm25_search(query: str, role: str, top_k: int = 6, vectorstore=None) -> List:
-    """Sparse BM25 retrieval over the role-permitted chunks (empty list on any failure)."""
+    """Sparse BM25 retrieval over role-permitted chunks; returns empty list on failure."""
     index = get_bm25_index(role, vectorstore)
     if not index:
         return []
@@ -117,5 +117,5 @@ def bm25_search(query: str, role: str, top_k: int = 6, vectorstore=None) -> List
         scores = index["bm25"].get_scores(_tokenize(query))
     except Exception:
         return []
-    ranked = sorted(zip(index["docs"], scores), key=lambda x: x[1], reverse=True)
+    ranked = sorted(zip(index["docs"], scores), key=lambda item: item[1], reverse=True)
     return [doc for doc, score in ranked[:top_k] if score > 0]
