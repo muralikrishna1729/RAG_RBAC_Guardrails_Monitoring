@@ -153,7 +153,9 @@ def retrieve_contexts(
     if role != "admin":
         search_kwargs["filter"] = {"$or": [{"role": role}, {"role": "general"}]}
     dense_docs = vectorstore.as_retriever(search_kwargs=search_kwargs).invoke(question)
-    sparse_docs = bm25_search(question, role, top_k=6, vectorstore=vectorstore)
+    sparse_docs = bm25_search(
+        question, role, top_k=6, vectorstore=vectorstore, persist_directory=persist_directory
+    )
     fused = reciprocal_rank_fusion(dense_docs, sparse_docs)
     candidates = [doc for doc, _score in fused[:8]]
     return rerank_documents(question, candidates, top_k=top_k)
