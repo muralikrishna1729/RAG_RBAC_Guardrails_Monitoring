@@ -14,7 +14,7 @@ except ImportError:
 from app.auth.users import get_user_role
 from app.guardrails.guardrail import check_input_guardrail, check_output_guardrail
 from app.retrieval.hybrid_rerank import bm25_search, reciprocal_rank_fusion, rerank_documents
-from app.utils.index_state import get_index_generation
+from app.utils.index_state import get_index_generation, get_active_collection_name
 
 load_dotenv()
 
@@ -36,7 +36,7 @@ def _cache_lookup(role: str, question: str, persist_directory: str = "./chroma_d
     query_vector = get_embeddings().embed_query(question)
     best_answer, best_score = None, 0.0
     for entry in SEMANTIC_CACHE:
-        if entry["role"] != role or entry["generation"] != generation:
+        if entry["role"] != role or entry.get("generation") != generation:
             continue
         score = _cosine_similarity(query_vector, entry["vector"])
         if score > best_score:
@@ -62,7 +62,11 @@ def _cache_store(role: str, question: str, answer: str, persist_directory: str =
 def build_rag_chain(persist_directory: str, role: str):
     if not os.path.exists(persist_directory):
         raise FileNotFoundError(f"Vector database not found at {persist_directory}")
-    vectorstore = Chroma(persist_directory=persist_directory, embedding_function=get_embeddings())
+    vectorstore = Chroma(
+        collection_name=get_active_collection_name(persist_directory),
+        persist_directory=persist_directory,
+        embedding_function=get_embeddings(),
+    )
 
     search_kwargs = {"k": 6}
     if role != "admin":
@@ -113,7 +117,11 @@ def build_rag_chain(persist_directory: str, role: str):
 def retrieve_contexts(role: str, question: str, persist_directory: str = "./chroma_db", vectorstore=None, top_k: int = 3):
     """Hybrid retrieval: dense + BM25 -> RRF -> cross-encoder rerank."""
     if vectorstore is None:
-        vectorstore = Chroma(persist_directory=persist_directory, embedding_function=get_embeddings())
+        vectorstore = Chroma(
+            collection_name=get_active_collection_name(persist_directory),
+            persist_directory=persist_directory,
+            embedding_function=get_embeddings(),
+        )
     search_kwargs = {"k": 6}
     if role != "admin":
         search_kwargs["filter"] = {"$or": [{"role": role}, {"role": "general"}]}
