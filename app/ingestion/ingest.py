@@ -1,7 +1,7 @@
-import hashlib
-import shutil
+import os
 import time
 from pathlib import Path
+from uuid import uuid4
 
 from langchain_community.document_loaders import CSVLoader, TextLoader, DirectoryLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -9,6 +9,8 @@ from langchain_chroma import Chroma
 
 from app.embeddings import get_embeddings
 from app.utils.index_state import write_index_generation
+
+import hashlib
 
 
 def _sha256_bytes(value: bytes) -> str:
@@ -90,51 +92,83 @@ def split_documents(all_docs: list):
 
 
 def store_in_chroma(chunks: list, persist_directory: str):
-    """Rebuild the current Chroma store and publish a new cache generation marker.
+    """Build a new collection, validate it, then atomically activate it.
 
-    NOTE: This function is still a destructive rebuild. Safe staging/activation is
-    the next ingestion milestone; the generation marker only prevents stale
-    application caches from being reused after a successful rebuild.
+    The current active collection is never deleted or modified during staging.
+    A failed embedding/write leaves the previous collection active.
     """
-    embeddings = get_embeddings()
+    if not chunks:
+        raise ValueError("Refusing to activate an empty document index.")
+
     store_path = Path(persist_directory)
+    store_path.mkdir(parents=True, exist_ok=True)
 
-    if store_path.exists():
-        for attempt in range(3):
-            try:
-                for item in store_path.iterdir():
-                    if item.is_dir():
-                        shutil.rmtree(item)
-                    else:
-                        item.unlink()
-                break
-            except (PermissionError, OSError):
-                if attempt == 2:
-                    raise RuntimeError(
-                        "Could not clear the existing Chroma store: another process "
-                        "(e.g. a running Streamlit app / API server) is holding it. "
-                        "Stop that app, then re-run the ingestion."
-                    )
-                time.sleep(1)
-    else:
-        store_path.mkdir(parents=True, exist_ok=True)
-
-    vector_db = Chroma.from_documents(
-        documents=chunks,
-        embedding=embeddings,
-        persist_directory=persist_directory,
-    )
-
-    generation = write_index_generation(persist_directory)
+    # One ingestion writer at a time across processes sharing this persistence path.
+    lock_path = store_path / ".ingestion.lock"
+    lock_fd = None
     try:
-        from app.retrieval.hybrid_rerank import reset_bm25_cache
-        reset_bm25_cache()
-    except Exception:
-        pass
+        lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(lock_fd, f"pid={os.getpid()} started={time.time()}".encode("utf-8"))
+    except FileExistsError as exc:
+        raise RuntimeError(
+            "Another ingestion job holds the Chroma writer lock. "
+            "If the previous process crashed, verify it is stopped before removing "
+            f"the stale lock file: {lock_path}"
+        ) from exc
 
-    print(f"Success: Stored {len(chunks)} chunks in ChromaDB at {persist_directory}")
-    print(f"Published index generation: {generation}")
-    return vector_db
+    generation = uuid4().hex
+    collection_name = f"rag_{generation[:16]}"
+    vector_db = None
+    activated = False
+
+    try:
+        vector_db = Chroma(
+            collection_name=collection_name,
+            persist_directory=str(store_path),
+            embedding_function=get_embeddings(),
+        )
+        vector_db.add_documents(chunks)
+
+        stored_count = vector_db._collection.count()
+        if stored_count != len(chunks):
+            raise RuntimeError(
+                f"Staged index validation failed: expected {len(chunks)} chunks, "
+                f"found {stored_count}."
+            )
+
+        published_generation = write_index_generation(
+            str(store_path),
+            collection_name=collection_name,
+            generation=generation,
+        )
+        activated = True
+
+        try:
+            from app.retrieval.hybrid_rerank import reset_bm25_cache
+            reset_bm25_cache()
+        except Exception:
+            # Other processes use generation-scoped BM25 keys and self-invalidate.
+            pass
+
+        print(
+            f"Activated Chroma collection {collection_name} with "
+            f"{stored_count} chunks (generation={published_generation})."
+        )
+        return vector_db
+    except Exception:
+        if vector_db is not None and not activated:
+            try:
+                vector_db.delete_collection()
+            except Exception:
+                pass
+        raise
+    finally:
+        if lock_fd is not None:
+            os.close(lock_fd)
+        try:
+            lock_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":
