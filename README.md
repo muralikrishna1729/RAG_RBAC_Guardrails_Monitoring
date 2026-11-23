@@ -250,7 +250,7 @@ The repository includes `Dockerfile` and `docker-compose.yml`. A production roll
 
 ## What's Next
 
-- Add the `Dockerfile` / `docker-compose.yml` setup, then deploy to AWS EC2 (`t2.medium`)
+- Validate the Chroma shared-volume deployment topology, then deploy the included Docker Compose setup to AWS EC2
 - Extend the FastAPI layer in `app/main.py` with an ingestion endpoint — JWT auth, chat, SSE streaming and the admin audit summary already exist
 - Scale the Ragas evaluation from the 10-question sample to the full testset, and add answer-side baseline numbers for faithfulness/relevancy
 - Move injection detection beyond regex patterns (trained classifier) and cover non-English phrasings
