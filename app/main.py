@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from app.auth.security import decode_jwt_token
 from app.auth.users import verify_credentials, get_user_role, create_access_token
 from app.guardrails.guardrail import check_input_guardrail
-from app.pipeline.rag_chain import ask_question, stream_rag_question, get_retrieved_sources
+from app.pipeline.rag_chain import generate_response_with_sources
 from app.utils.audit_logger import log_audit_event
 from app.utils.audit_reader import read_audit_events, summarize_events
 
@@ -66,8 +66,6 @@ def get_current_user(credentials=Depends(bearer_scheme)):
     current_role = get_user_role(username)
     if not current_role:
         raise HTTPException(status_code=401, detail="User account is no longer available")
-
-    # Ignore the role claim in the token: role changes take effect immediately.
     return {"username": username, "role": current_role}
 
 
@@ -107,8 +105,12 @@ def chat(request: ChatRequest, user=Depends(get_current_user)):
         log_audit_event(username, role, "CHAT", request.question, f"BLOCKED: {violation}", [])
         return {"response": violation, "sources": [], "guardrail_triggered": True}
 
-    response = ask_question(username, request.question, input_guardrail_checked=True)
-    sources = get_retrieved_sources(role, request.question)
+    response, sources = generate_response_with_sources(
+        role,
+        request.question,
+        username=username,
+        input_guardrail_checked=True,
+    )
     log_audit_event(username, role, "CHAT", request.question, "PASSED", sources)
     return {"response": response, "sources": sources, "role": role}
 
@@ -126,12 +128,13 @@ def chat_stream(question: str = Query(...), user=Depends(get_current_user)):
             yield f"data: {json.dumps({'event': 'error', 'message': violation})}\n\n"
             return
 
-        for safe_chunk in stream_rag_question(
-            role, question, username=username, input_guardrail_checked=True
-        ):
-            yield f"data: {json.dumps({'event': 'token', 'token': safe_chunk})}\n\n"
-
-        sources = get_retrieved_sources(role, question)
+        response, sources = generate_response_with_sources(
+            role,
+            question,
+            username=username,
+            input_guardrail_checked=True,
+        )
+        yield f"data: {json.dumps({'event': 'token', 'token': response})}\n\n"
         log_audit_event(username, role, "STREAM", question, "PASSED", sources)
         yield f"data: {json.dumps({'event': 'done', 'sources': sources})}\n\n"
 
