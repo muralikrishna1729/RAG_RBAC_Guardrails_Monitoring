@@ -1,4 +1,4 @@
-from app.pipeline.rag_chain import generate_response_with_sources, build_rag_chain
+from app.pipeline.rag_chain import generate_response_with_sources
 import streamlit as st
 from app.auth.users import get_user_role, verify_credentials
 from app.guardrails.guardrail import check_input_guardrail
@@ -21,12 +21,6 @@ from app.ui import (
 
 st.set_page_config(page_title="Company AI Assistant", page_icon="🤖", layout="centered")
 inject_custom_css()
-
-
-@st.cache_resource
-def get_cached_rag_chain(role):
-    """Cache the role-specific RAG chain and its loaded embedding resources."""
-    return build_rag_chain("./chroma_db", role)
 
 
 if "logged_in" not in st.session_state:
@@ -79,6 +73,7 @@ def show_chat_page():
             if clean_prompt in greeting_responses:
                 response_text = greeting_responses[clean_prompt]
                 sources = []
+                st.markdown(response_text)
                 log_audit_event(username, role, "CHAT", prompt, "PASSED", sources)
             else:
                 violation_msg = check_input_guardrail(prompt)
