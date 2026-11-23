@@ -1,9 +1,4 @@
-"""Reads and aggregates structured security-audit events from the audit log.
-
-Shared by the Streamlit security dashboard and the /api/v1/audit/summary API.
-The log path can be overridden with the AUDIT_LOG_PATH environment variable.
-"""
-
+"""Read and aggregate structured security-audit events from active and rotated logs."""
 import json
 import os
 from pathlib import Path
@@ -11,47 +6,56 @@ from pathlib import Path
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _audit_log_path() -> Path:
-    return Path(os.getenv("AUDIT_LOG_PATH", str(_PROJECT_ROOT / "security_audit.log")))
+def _audit_log_paths() -> list:
+    configured_paths = os.getenv("AUDIT_LOG_PATHS", "").strip()
+    if configured_paths:
+        return [Path(item.strip()) for item in configured_paths.split(",") if item.strip()]
+    return [Path(os.getenv("AUDIT_LOG_PATH", str(_PROJECT_ROOT / "security_audit.log")))]
 
 
 def read_audit_events() -> list:
-    """Returns all parseable audit events (one JSON object per log line)."""
-    log_path = _audit_log_path()
+    """Return parseable events from rotated files in chronological file order."""
     events = []
-    if not log_path.exists():
-        return events
-    with log_path.open(encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
+    for log_path in _audit_log_paths():
+        paths = [Path(f"{log_path}.{index}") for index in range(5, 0, -1)] + [log_path]
+        for path in paths:
+            if not path.exists():
                 continue
-            try:
-                events.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue  # skip malformed / legacy lines
+            with path.open(encoding="utf-8") as audit_file:
+                for line in audit_file:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        events.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+    events.sort(key=lambda event: event.get("timestamp", ""))
     return events
 
 
 def summarize_events(events: list) -> dict:
-    """Aggregates audit events into dashboard/metrics-friendly counts."""
+    """Aggregate current and legacy audit event formats."""
     from collections import Counter
 
     def is_blocked(event: dict) -> bool:
         return str(event.get("guardrail_status", "")).startswith("BLOCKED")
 
-    by_status = Counter("blocked" if is_blocked(e) else "passed" for e in events)
+    def event_role(event: dict) -> str:
+        return event.get("role", event.get("role_claim", "unknown"))
+
+    by_status = Counter("blocked" if is_blocked(event) else "passed" for event in events)
     blocked_reasons = Counter(
-        e["guardrail_status"] for e in events if is_blocked(e)
+        event["guardrail_status"] for event in events if is_blocked(event)
     )
 
     return {
         "total_events": len(events),
         "passed": by_status.get("passed", 0),
         "blocked": by_status.get("blocked", 0),
-        "by_role": dict(Counter(e.get("role_claim", "unknown") for e in events)),
-        "by_user": dict(Counter(e.get("username", "unknown") for e in events)),
-        "by_action": dict(Counter(e.get("action", "unknown") for e in events)),
+        "by_role": dict(Counter(event_role(event) for event in events)),
+        "by_user": dict(Counter(event.get("username", "unknown") for event in events)),
+        "by_action": dict(Counter(event.get("action", "unknown") for event in events)),
         "blocked_reasons": dict(blocked_reasons),
         "last_event_at": events[-1].get("timestamp") if events else None,
     }
