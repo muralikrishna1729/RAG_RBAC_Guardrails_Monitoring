@@ -4,7 +4,7 @@ from typing import Dict, List, Tuple
 from langchain_core.documents import Document
 from sentence_transformers import CrossEncoder
 
-from app.utils.index_state import get_index_generation
+from app.utils.index_state import get_index_generation, get_active_collection_name
 
 _reranker_instance = None
 _bm25_cache: Dict[Tuple[str, str], dict] = {}
@@ -73,12 +73,16 @@ def reset_bm25_cache(role: str = None) -> None:
 
 
 def _load_role_documents(role: str, vectorstore=None) -> List[Document]:
-    """Load every chunk the role is permitted to see from Chroma."""
+    """Load every chunk the role is permitted to see from the active Chroma collection."""
     try:
         if vectorstore is None:
             from app.embeddings import get_embeddings
             from langchain_chroma import Chroma
-            vectorstore = Chroma(persist_directory="./chroma_db", embedding_function=get_embeddings())
+            vectorstore = Chroma(
+                collection_name=get_active_collection_name("./chroma_db"),
+                persist_directory="./chroma_db",
+                embedding_function=get_embeddings(),
+            )
         role_filter = None if role == "admin" else {"$or": [{"role": role}, {"role": "general"}]}
         stored = vectorstore.get(where=role_filter) if role_filter else vectorstore.get()
         documents = stored.get("documents") or []
@@ -92,7 +96,7 @@ def _load_role_documents(role: str, vectorstore=None) -> List[Document]:
 
 
 def get_bm25_index(role: str, vectorstore=None):
-    """Cache BM25 per role and index generation so re-ingestion cannot leave stale docs."""
+    """Cache BM25 per role and active index generation."""
     generation = get_index_generation()
     cache_key = (role, generation)
     if cache_key in _bm25_cache:
