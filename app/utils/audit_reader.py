@@ -1,4 +1,4 @@
-"""Read and aggregate structured security-audit events from the active and rotated logs."""
+"""Read and aggregate structured security-audit events from active and rotated logs."""
 import json
 import os
 from pathlib import Path
@@ -6,31 +6,31 @@ from pathlib import Path
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _audit_log_path() -> Path:
-    return Path(os.getenv("AUDIT_LOG_PATH", str(_PROJECT_ROOT / "security_audit.log")))
+def _audit_log_paths() -> list:
+    configured_paths = os.getenv("AUDIT_LOG_PATHS", "").strip()
+    if configured_paths:
+        return [Path(item.strip()) for item in configured_paths.split(",") if item.strip()]
+    return [Path(os.getenv("AUDIT_LOG_PATH", str(_PROJECT_ROOT / "security_audit.log")))]
 
 
 def read_audit_events() -> list:
     """Return parseable events from rotated files in chronological file order."""
-    log_path = _audit_log_path()
     events = []
-    paths = [
-        Path(f"{log_path}.{index}")
-        for index in range(5, 0, -1)
-    ] + [log_path]
-
-    for path in paths:
-        if not path.exists():
-            continue
-        with path.open(encoding="utf-8") as audit_file:
-            for line in audit_file:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    events.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
+    for log_path in _audit_log_paths():
+        paths = [Path(f"{log_path}.{index}") for index in range(5, 0, -1)] + [log_path]
+        for path in paths:
+            if not path.exists():
+                continue
+            with path.open(encoding="utf-8") as audit_file:
+                for line in audit_file:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        events.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+    events.sort(key=lambda event: event.get("timestamp", ""))
     return events
 
 
