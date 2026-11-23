@@ -14,6 +14,7 @@ except ImportError:
 from app.auth.users import get_user_role
 from app.guardrails.guardrail import check_input_guardrail, check_output_guardrail
 from app.retrieval.hybrid_rerank import bm25_search, reciprocal_rank_fusion, rerank_documents
+from app.utils.index_state import get_index_generation
 
 load_dotenv()
 
@@ -29,12 +30,13 @@ def _cosine_similarity(a, b) -> float:
     return dot / (norm_a * norm_b) if norm_a and norm_b else 0.0
 
 
-def _cache_lookup(role: str, question: str):
-    """Returns a cached answer for a semantically similar question in the same role."""
+def _cache_lookup(role: str, question: str, persist_directory: str = "./chroma_db"):
+    """Return a similar cached answer only for the current role and index generation."""
+    generation = get_index_generation(persist_directory)
     query_vector = get_embeddings().embed_query(question)
     best_answer, best_score = None, 0.0
     for entry in SEMANTIC_CACHE:
-        if entry["role"] != role:
+        if entry["role"] != role or entry["generation"] != generation:
             continue
         score = _cosine_similarity(query_vector, entry["vector"])
         if score > best_score:
@@ -45,7 +47,7 @@ def _cache_lookup(role: str, question: str):
     return None
 
 
-def _cache_store(role: str, question: str, answer: str) -> None:
+def _cache_store(role: str, question: str, answer: str, persist_directory: str = "./chroma_db") -> None:
     if len(SEMANTIC_CACHE) >= SEMANTIC_CACHE_MAX_SIZE:
         SEMANTIC_CACHE.pop(0)
     SEMANTIC_CACHE.append({
@@ -53,6 +55,7 @@ def _cache_store(role: str, question: str, answer: str) -> None:
         "question": question,
         "answer": answer,
         "vector": get_embeddings().embed_query(question),
+        "generation": get_index_generation(persist_directory),
     })
 
 
@@ -188,7 +191,7 @@ def stream_rag_question(
             yield violation
             return
 
-    cached = _cache_lookup(role, question)
+    cached = _cache_lookup(role, question, persist_directory)
     if cached:
         yield cached
         return
@@ -206,7 +209,7 @@ def stream_rag_question(
         accumulated += chunk
 
     safe_response = check_output_guardrail(accumulated)
-    _cache_store(role, question, safe_response)
+    _cache_store(role, question, safe_response, persist_directory)
     yield safe_response
 
 
